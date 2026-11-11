@@ -19,7 +19,6 @@ final class KeyboardViewController: UIInputViewController {
     private var conversionTask: Task<Void, Never>?
     private var deleteTimer: Timer?
     private var heightConstraint: NSLayoutConstraint?
-    private var documentID: UUID?
     private let content = UIStackView()
     private let compositionLabel = UILabel()
     private let candidateStack = UIStackView()
@@ -35,7 +34,6 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        documentID = textDocumentProxy.documentIdentifier
         content.axis = .vertical
         content.spacing = 4
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -55,7 +53,6 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        documentID = textDocumentProxy.documentIdentifier
         buildKeyboard()
     }
 
@@ -63,14 +60,6 @@ final class KeyboardViewController: UIInputViewController {
         super.viewWillDisappear(animated)
         stopDelete()
         clearComposition()
-    }
-
-    override func textDidChange(_ textInput: UITextInput?) {
-        super.textDidChange(textInput)
-        if documentID != textDocumentProxy.documentIdentifier {
-            documentID = textDocumentProxy.documentIdentifier
-            clearComposition()
-        }
     }
 
     override func textWillChange(_ textInput: UITextInput?) {

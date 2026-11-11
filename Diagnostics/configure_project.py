@@ -15,6 +15,7 @@ target = '''  KeyboardLifecycleTests:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.suica10.NumberKey.LifecycleTests
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ''
     dependencies:
       - target: NumberKey
       - package: Converter

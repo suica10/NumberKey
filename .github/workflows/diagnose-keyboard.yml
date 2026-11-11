@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - 'Diagnostics/**'
+      - 'Keyboard/**'
+      - 'App/**'
+      - 'project.yml'
       - '.github/workflows/diagnose-keyboard.yml'
 permissions:
   contents: read
@@ -44,6 +47,7 @@ jobs:
           mkdir -p build
           xcodebuild test -project NumberKey.xcodeproj -scheme KeyboardStartup \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
             -derivedDataPath build/Simulator \
             -resultBundlePath build/KeyboardStartup.xcresult \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \

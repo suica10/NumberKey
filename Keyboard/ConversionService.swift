@@ -21,7 +21,7 @@ actor ConversionService {
             sharedContainerURL: directory,
             textReplacer: .empty,
             specialCandidateProviders: [],
-            metadata: .init(versionString: "NumberKey 0.1")
+            metadata: .init(versionString: "NumberKey 0.1.1")
         ))
         var seen = Set<String>()
         return results.mainResults.compactMap { candidate in
