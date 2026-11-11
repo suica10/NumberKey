@@ -20,7 +20,7 @@ with (EXT / 'Info.plist').open('rb') as f:
     extension_info = plistlib.load(f)
 assert extension_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'
 assert extension_info['CFBundleIdentifier'].startswith(app_info['CFBundleIdentifier'] + '.')
-assert extension_info['NSExtension']['NSExtensionAttributes']['RequestsOpenAccess'] is False
+assert extension_info['NSExtension']['NSExtensionAttributes']['RequestsOpenAccess'] is True
 for bundle, info in [(APP, app_info), (EXT, extension_info)]:
     executable = bundle / info['CFBundleExecutable']
     archs = subprocess.check_output(['lipo', '-archs', str(executable)], text=True).strip()

@@ -1,69 +1,111 @@
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 @main
 struct NumberKeyApp: App {
-    var body: some Scene {
-        WindowGroup { WelcomeView() }
-    }
+    var body: some Scene { WindowGroup { SettingsView() } }
 }
 
-struct WelcomeView: View {
+struct SettingsView: View {
+    @State private var layout = KeyboardSettings().snapshot
+    @State private var selected: Slot?
+    @State private var copied = false
     @State private var sample = ""
+    private struct Slot: Equatable { let row: Int; let column: Int }
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Label("数字を、いつでも。", systemImage: "keyboard")
-                        .font(.title2.bold())
-                    Text("日本語ローマ字入力と英字入力のための、数字列つきQWERTYキーボード。")
+                Section("キー配置") {
+                    Text("入れ替えたい2つのキーを順にタップ")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    GeometryReader { geometry in
+                        let gap: CGFloat = 4
+                        let width = max(18, (geometry.size.width - gap * 9) / 10)
+                        VStack(spacing: 8) {
+                            ForEach(0..<4, id: \.self) { row in
+                                HStack(spacing: gap) {
+                                    ForEach(0..<layout.rows[row].count, id: \.self) { column in
+                                        let slot = Slot(row: row, column: column)
+                                        Button { select(slot) } label: {
+                                            Text(layout.rows[row][column])
+                                                .font(.system(size: 20))
+                                                .frame(width: width, height: 38)
+                                                .background(selected == slot ? Color.accentColor : Color(white: 0.38))
+                                                .foregroundStyle(.white)
+                                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                                        }.buttonStyle(.plain)
+                                    }
+                                }.frame(maxWidth: .infinity)
+                            }
+                        }.padding(.vertical, 7)
+                    }.frame(height: 186)
+                    Button("標準の配置に戻す") { layout.rows = LayoutSettings.defaults.rows; selected = nil }
                 }
-                Section("使い始める") {
-                    Text("1. iPhoneの「設定」を開く")
-                    Text("2. 一般 → キーボード → キーボード → 新しいキーボードを追加")
-                    Text("3. NumberKey 日本語を追加")
-                    Text("4. 入力欄の地球儀キーでNumberKeyに切り替える")
-                    Text("フルアクセスは不要です。入力内容は送信しません。")
+                Section("表示") {
+                    Picker("配色", selection: $layout.theme) {
+                        Text("自動").tag(0); Text("ライト").tag(1); Text("ダーク").tag(2)
+                    }
+                    Toggle("画像に合わせたキーの高さ", isOn: Binding(
+                        get: { layout.keyHeight == 0 },
+                        set: { layout.keyHeight = $0 ? 0 : 38 }))
+                    if layout.keyHeight != 0 {
+                        HStack {
+                            Text("高さ")
+                            Slider(value: $layout.keyHeight, in: 32...60, step: 1)
+                            Text("\(Int(layout.keyHeight))").monospacedDigit()
+                        }
+                    }
+                    Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
+                }
+                Section("キーボードに反映") {
+                    Button(copied ? "配置をコピーしました" : "配置をコピー") {
+                        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: layout.exportString()]], options: [.localOnly: true])
+                        copied = true
+                    }.font(.headline)
+                    Text("コピー後、キーボードの「123」を長押しして「配置を読み込む」を選びます。")
+                    Text("読み込みには、iPhoneの設定 → 一般 → キーボード → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。貼り付けの確認が出たら許可します。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("配置は明示的に読み込んだときだけクリップボードから取得します。入力内容を送信する通信処理はありません。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("入力を試す") {
                     TextEditor(text: $sample)
-                        .frame(minHeight: 130)
-                        .autocorrectionDisabled()
-                    Text("nihongo → スペースで候補選択 → 確定。候補をタップしても入力できます。")
+                        .frame(minHeight: 120).autocorrectionDisabled()
+                    Text("日本語の未確定文字は、この入力欄に直接表示されます。スペースで変換し、候補タップまたは確定キーで確定します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("キーの使い方") {
-                    Text("日本語 / ABC：入力言語の切り替え")
-                    Text("スペース：変換候補の選択・切り替え")
-                    Text("↵：変換中は確定、確定後は改行")
-                    Text("← / →：未確定文字内、または入力欄のカーソル移動")
-                    Text("⌫ 長押し：連続削除")
-                    Text("数字・記号の長押し：別の記号を入力")
-                    Text("⚙：キーの高さ・配色・最上段10キーの変更")
+                Section("使い方") {
+                    Text("「123」の長押し：日本語／Englishの切り替え・カーソル移動・配置の読み込み")
+                    Text("地球儀：キーボードの切り替え")
+                    Text("シフトを2回タップ：大文字を固定")
+                    Text("削除を長押し：連続削除")
+                    Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
-                Section("この版について") {
-                    Text("v0.1.2 開発版・iOS 17以降")
-                    Text("未確定の日本語はキーボード内の上部に表示します。確定すると入力欄に入ります。入力欄やキーボードを切り替えると未確定文字は取り消されます。")
-                    Text("パスワード欄など、iOSの制限によって標準キーボードが表示される場所があります。")
-                    Text("日本語変換：AzooKeyKanaKanjiConverter。ニューラルモデル・学習・通信は使用しません。")
+                Section {
+                    Text("NumberKey v0.2.0 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
-                        ScrollView {
-                            Text(licenseText)
-                                .font(.system(.footnote, design: .monospaced))
-                                .padding().textSelection(.enabled)
-                        }.navigationTitle("ライセンス")
+                        ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
+                            .navigationTitle("ライセンス")
                     }
                 }
             }
             .navigationTitle("NumberKey")
+            .onChange(of: layout) { _, value in KeyboardSettings().snapshot = value; copied = false }
         }
     }
-
+    private func select(_ slot: Slot) {
+        guard let previous = selected else { selected = slot; return }
+        if previous != slot {
+            let old = layout.rows[previous.row][previous.column]
+            layout.rows[previous.row][previous.column] = layout.rows[slot.row][slot.column]
+            layout.rows[slot.row][slot.column] = old
+        }
+        selected = nil
+    }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),
-              let text = try? String(contentsOf: url, encoding: .utf8) else {
-            return "ライセンス情報の読み込みに失敗しました。"
-        }
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return "ライセンス情報を読み込めませんでした。" }
         return text
     }
 }
