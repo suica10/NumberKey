@@ -1,4 +1,4 @@
-# NumberKey v0.1
+# NumberKey v0.1.1
 
 iOS 17以降の日本語ローマ字入力／英字QWERTYキーボード。最上段に数字を常時表示します。
 
@@ -6,11 +6,18 @@ iOS 17以降の日本語ローマ字入力／英字QWERTYキーボード。最�
 
 GitHub ActionsでiPhone/iPad（arm64）向けの未署名IPA生成に成功した開発版です。
 ローマ字入力・促音拗音・辞書変換・連続変換の4件の自動テストが成功しました。
-実機での表示・操作、再署名後のインストールは未確認です。
+iOS 27シミュレーター上で、キーボード画面の起動・再表示・設定画面への往復の2件のテストも成功しました。
+実機での地球儀による切り替えと、Feather再署名後の動作は再確認が必要です。
 
-[成功したビルドとIPA](https://github.com/suica10/NumberKey/actions/runs/42940405757)
+[成功したビルドとIPA](https://github.com/suica10/NumberKey/actions/runs/42944599509)
 
 Artifactsの `NumberKey-unsigned-IPA` をダウンロードし、ZIP内の `NumberKey-unsigned.ipa` を取り出してください。
+
+## v0.1.1の修正
+
+入力先の準備前に `textDocumentProxy.documentIdentifier` を読み取ると、nilからUUIDへの変換で起動時にクラッシュする不具合を修正しました。画面初期化時の識別子読み取りを廃止し、入力先の変更は既存の `textWillChange` と画面終了時の通知で処理します。
+
+[修正後の起動テスト](https://github.com/suica10/NumberKey/actions/runs/42944599367)
 
 ## 機能
 
