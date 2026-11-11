@@ -1,6 +1,6 @@
 import UIKit
 
-enum KeyboardAction { case shift, delete, symbols, space, enter }
+enum KeyboardAction { case shift, delete, symbols, symbolPage, space, enter, paste }
 
 final class KeyboardKey: UIButton {
     var normalColor: UIColor = .darkGray
@@ -27,18 +27,27 @@ final class KeyboardCanvas: UIView {
     private var bottom: [KeyboardKey] = []
     private var popup: UILabel?
     private var shifted = false
+    private var symbols = false
+    private var symbolPage = 0
     private var dark: Bool { settings.theme == 2 || (settings.theme == 0 && traitCollection.userInterfaceStyle != .light) }
     private var keyColor: UIColor { dark ? UIColor(white: 0.38, alpha: 1) : .white }
 
-    func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool) {
+    func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, symbolPage: Int, japanese: Bool) {
         self.settings = settings; self.shifted = shifted
+        self.symbols = symbols; self.symbolPage = symbolPage
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; characterRows = []; bottom = []
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
-        values = settings.rows
         if symbols {
-            let symbolRows: [String] = ["!@#$%^&*()", "[]{}<>+=/", "_\\|~\u{0060}：；"]
-            values = [settings.rows[0]] + symbolRows.map { line in line.map { String($0) } }
+            let mainSymbols = ["-", "/", ":", ";", "(", ")", "$", "&", "@", String(UnicodeScalar(34)!)]
+            let extendedSymbols = ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]
+            let punctuation = [".", ",", "?", "!", "'"]
+            let backslash = String(UnicodeScalar(92)!)
+            let extraSymbols = ["_", backslash, "|", "~", "<", ">", "€", "£", "¥", "•"]
+            values = [settings.rows[0], symbolPage == 0 ? mainSymbols : extendedSymbols,
+                      symbolPage == 0 ? punctuation : extraSymbols]
+        } else {
+            values = settings.rows
         }
         for row in values {
             characterRows.append(row.map { text in
@@ -56,11 +65,15 @@ final class KeyboardCanvas: UIView {
                 return button
             })
         }
-        shiftButton = makeKey("") { [weak self] in self?.onAction?(.shift) }
-        shiftButton?.accessibilityLabel = "シフト"
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleShift(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        shiftButton?.addGestureRecognizer(doubleTap)
+        shiftButton = makeKey(symbols ? (symbolPage == 0 ? "#+=" : "123") : "") { [weak self] in
+            self?.onAction?(symbols ? .symbolPage : .shift)
+        }
+        shiftButton?.accessibilityLabel = symbols ? (symbolPage == 0 ? "その他の記号" : "数字記号") : "シフト"
+        if !symbols {
+            let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleShift(_:)))
+            doubleTap.numberOfTapsRequired = 2
+            shiftButton?.addGestureRecognizer(doubleTap)
+        }
         deleteButton = makeKey("") { [weak self] in self?.onAction?(.delete) }
         deleteButton?.setImage(UIImage(systemName: "delete.left.fill"), for: .normal)
         deleteButton?.accessibilityLabel = "削除"
@@ -72,11 +85,13 @@ final class KeyboardCanvas: UIView {
         globe.setImage(UIImage(systemName: "globe"), for: .normal)
         globe.accessibilityLabel = "次のキーボード"
         configureGlobe?(globe)
-        let space = makeKey("space") { [weak self] in self?.onAction?(.space) }
-        space.accessibilityLabel = "スペース"
+        let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
+        space.accessibilityLabel = japanese ? "日本語入力" : "スペース"
         configureSpaceMenu?(space)
         let enter = makeKey("return") { [weak self] in self?.onAction?(.enter) }
         enter.accessibilityLabel = "改行"
+        let pasteHold = UILongPressGestureRecognizer(target: self, action: #selector(returnHold(_:)))
+        enter.addGestureRecognizer(pasteHold)
         bottom = [symbolsKey, globe, space, enter]
         updateShift(shifted, caps: false)
         setNeedsLayout()
@@ -105,38 +120,54 @@ final class KeyboardCanvas: UIView {
 
     func preferredHeight(width: CGFloat) -> CGFloat {
         let height = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
-        return height * 5 + width * 26 / 1206 * 4 + 7
+        let rowCount: CGFloat = symbols ? 4 : 5
+        return height * rowCount + width * 26 / 1206 * (rowCount - 1) + 7
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard characterRows.count == 4, bottom.count == 4 else { return }
+        guard characterRows.count == (symbols ? 3 : 4), bottom.count == 4 else { return }
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
         let verticalGap = width * 26 / 1206
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
         let keyHeight = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
         let font = min(26, max(18, width * 66 / 1206))
-        for r in 0..<4 {
-            let count = characterRows[r].count
-            let span = CGFloat(count) * keyWidth + CGFloat(count - 1) * gap
-            let start = r < 2 ? edge : (width - span) / 2
-            for (c, key) in characterRows[r].enumerated() {
-                key.frame = CGRect(x: start + CGFloat(c) * (keyWidth + gap), y: 3 + CGFloat(r) * (keyHeight + verticalGap), width: keyWidth, height: keyHeight)
+        let sideWidth = keyWidth * 1.34
+        for (rowIndex, row) in characterRows.enumerated() {
+            let count = row.count
+            let rowWidth: CGFloat
+            if symbols && rowIndex == 2 {
+                let available = width - 2 * edge - 2 * sideWidth - 2 * gap
+                rowWidth = min(keyWidth, (available - CGFloat(count - 1) * gap) / CGFloat(count))
+            } else {
+                rowWidth = keyWidth
+            }
+            let span = CGFloat(count) * rowWidth + CGFloat(count - 1) * gap
+            let start = rowIndex < 2 ? edge : (width - span) / 2
+            let y = 3 + CGFloat(rowIndex) * (keyHeight + verticalGap)
+            for (column, key) in row.enumerated() {
+                key.frame = CGRect(x: start + CGFloat(column) * (rowWidth + gap), y: y, width: rowWidth, height: keyHeight)
                 key.titleLabel?.font = .systemFont(ofSize: font)
             }
         }
-        let sideWidth = keyWidth * 1.34
-        shiftButton?.frame = CGRect(x: edge, y: 3 + 3 * (keyHeight + verticalGap), width: sideWidth, height: keyHeight)
-        deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: 3 + 3 * (keyHeight + verticalGap), width: sideWidth, height: keyHeight)
+        let actionRow = symbols ? 2 : 3
+        let actionY = 3 + CGFloat(actionRow) * (keyHeight + verticalGap)
+        shiftButton?.frame = CGRect(x: edge, y: actionY, width: sideWidth, height: keyHeight)
+        deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: actionY, width: sideWidth, height: keyHeight)
         let icon = UIImage.SymbolConfiguration(pointSize: font + 2, weight: .semibold)
-        shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
+        if symbols {
+            shiftButton?.titleLabel?.font = .systemFont(ofSize: 16)
+        } else {
+            shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
+        }
         deleteButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
         let weights: [CGFloat] = [132, 130, 588, 282]
         let available = width - 2 * edge - 3 * gap
         var x = edge
+        let bottomY = 3 + CGFloat(symbols ? 3 : 4) * (keyHeight + verticalGap)
         for i in 0..<4 {
             let key = bottom[i], w = available * weights[i] / weights.reduce(0, +)
-            key.frame = CGRect(x: x, y: 3 + 4 * (keyHeight + verticalGap), width: w, height: keyHeight)
+            key.frame = CGRect(x: x, y: bottomY, width: w, height: keyHeight)
             key.titleLabel?.font = .systemFont(ofSize: min(20, max(15, font * 0.82)))
             key.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: font + 3, weight: .regular), forImageIn: .normal)
             x += w + gap
@@ -145,13 +176,19 @@ final class KeyboardCanvas: UIView {
 
     func updateShift(_ shifted: Bool, caps: Bool) {
         self.shifted = shifted
-        for (r, row) in characterRows.enumerated() {
-            for (c, button) in row.enumerated() {
-                let value = values[r][c]
-                button.setTitle(shifted ? value.uppercased() : value, for: .normal)
+        for (rowIndex, row) in characterRows.enumerated() {
+            for (column, button) in row.enumerated() {
+                let value = values[rowIndex][column]
+                button.setTitle(shifted && !symbols ? value.uppercased() : value, for: .normal)
             }
         }
-        shiftButton?.setImage(UIImage(systemName: caps ? "capslock.fill" : shifted ? "shift.fill" : "shift"), for: .normal)
+        if symbols {
+            shiftButton?.setImage(nil, for: .normal)
+            shiftButton?.setTitle(symbolPage == 0 ? "#+=" : "123", for: .normal)
+        } else {
+            shiftButton?.setTitle("", for: .normal)
+            shiftButton?.setImage(UIImage(systemName: caps ? "capslock.fill" : shifted ? "shift.fill" : "shift"), for: .normal)
+        }
     }
     func setComposing(_ composing: Bool) {
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
@@ -177,4 +214,7 @@ final class KeyboardCanvas: UIView {
     private func hidePopup() { popup?.removeFromSuperview(); popup = nil }
     @objc private func doubleShift(_ g: UITapGestureRecognizer) { onCaps?() }
     @objc private func deleteHold(_ g: UILongPressGestureRecognizer) { onDeleteHold?(g) }
+    @objc private func returnHold(_ g: UILongPressGestureRecognizer) {
+        if g.state == .began { onAction?(.paste) }
+    }
 }
