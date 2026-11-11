@@ -2,7 +2,7 @@ name: Build unsigned IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, codex/temporarily-remove-phrases-increase-keys-20261111]
+    branches: [main]
     paths:
       - 'App/**'
       - 'Keyboard/**'
