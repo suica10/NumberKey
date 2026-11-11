@@ -1,14 +1,18 @@
 """Validate a real device build and wrap it as an unsigned IPA for re-signing."""
 from pathlib import Path
 import hashlib
+import json
 import plistlib
 import subprocess
 import zipfile
+from embed_runtime_frameworks import embed_runtime_frameworks
+from verify_ipa import verify_ipa
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'build/DerivedData/Build/Products/Release-iphoneos/NumberKey.app'
 if not APP.is_dir():
     raise SystemExit('Device .app is missing. Build with the iphoneos SDK first.')
+embed_runtime_frameworks(APP, ROOT)
 with (APP / 'Info.plist').open('rb') as f:
     app_info = plistlib.load(f)
 EXT = APP / 'PlugIns/NumberKeyKeyboard.appex'
@@ -42,6 +46,9 @@ with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED) as arch
             archive.writestr(entry, path.read_bytes())
 with zipfile.ZipFile(destination) as archive:
     assert archive.testzip() is None
+dependency_report = verify_ipa(destination)
+(DIST / 'dependency-report.json').write_text(json.dumps(dependency_report, indent=2), encoding='utf-8')
+print('Packaged IPA dependency closure verified for app and keyboard extension.')
 checksum = hashlib.sha256(destination.read_bytes()).hexdigest()
 (DIST / 'SHA256SUMS.txt').write_text(f'{checksum}  {destination.name}\n', encoding='utf-8')
 print(f'Created unsigned IPA: {destination} ({destination.stat().st_size:,} bytes)')

@@ -65,6 +65,7 @@ jobs:
           path: |
             dist/NumberKey-unsigned.ipa
             dist/SHA256SUMS.txt
+            dist/dependency-report.json
           if-no-files-found: error
           retention-days: 14
       - name: Upload diagnostics
