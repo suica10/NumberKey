@@ -44,8 +44,12 @@ final class KeyboardCanvas: UIView {
             let punctuation = [".", ",", "?", "!", "'"]
             let backslash = String(UnicodeScalar(92)!)
             let extraSymbols = ["_", backslash, "|", "~", "<", ">", "€", "£", "¥", "•"]
-            values = [settings.rows[0], symbolPage == 0 ? mainSymbols : extendedSymbols,
-                      symbolPage == 0 ? punctuation : extraSymbols]
+            let digitRow = japanese ? settings.rows[0].map(japaneseFullWidth) : settings.rows[0]
+            let symbolRow = symbolPage == 0 ? mainSymbols : extendedSymbols
+            let punctuationRow = symbolPage == 0 ? punctuation : extraSymbols
+            values = [digitRow,
+                      japanese ? symbolRow.map(japaneseFullWidth) : symbolRow,
+                      japanese ? punctuationRow.map(japaneseFullWidth) : punctuationRow]
         } else {
             values = settings.rows
         }
@@ -53,7 +57,8 @@ final class KeyboardCanvas: UIView {
             characterRows.append(row.map { text in
                 let button = makeKey(text) { [weak self] in self?.onText?(text) }
                 button.accessibilityIdentifier = text
-                let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")"]
+                let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")",
+                                  "１":"！", "２":"＠", "３":"＃", "４":"＄", "５":"％", "６":"＾", "７":"＆", "８":"＊", "９":"（", "０":"）"]
                 if let alternate = alternates[text] {
                     button.menu = UIMenu(children: [UIAction(title: alternate) { [weak self] _ in self?.onText?(alternate) }])
                 }
@@ -86,13 +91,13 @@ final class KeyboardCanvas: UIView {
         globe.accessibilityLabel = "次のキーボード"
         configureGlobe?(globe)
         let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
-        space.accessibilityLabel = japanese ? "日本語入力" : "スペース"
         configureSpaceMenu?(space)
         let enter = makeKey("return") { [weak self] in self?.onAction?(.enter) }
         enter.accessibilityLabel = "改行"
         let pasteHold = UILongPressGestureRecognizer(target: self, action: #selector(returnHold(_:)))
         enter.addGestureRecognizer(pasteHold)
         bottom = [symbolsKey, globe, space, enter]
+        setJapaneseMode(japanese)
         updateShift(shifted, caps: false)
         setNeedsLayout()
     }
@@ -189,6 +194,11 @@ final class KeyboardCanvas: UIView {
             shiftButton?.setTitle("", for: .normal)
             shiftButton?.setImage(UIImage(systemName: caps ? "capslock.fill" : shifted ? "shift.fill" : "shift"), for: .normal)
         }
+    }
+    func setJapaneseMode(_ japanese: Bool) {
+        guard bottom.count > 2 else { return }
+        bottom[2].setTitle(japanese ? "日本語" : "space", for: .normal)
+        bottom[2].accessibilityLabel = japanese ? "日本語入力" : "スペース"
     }
     func setComposing(_ composing: Bool) {
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
