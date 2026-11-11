@@ -214,7 +214,10 @@ final class KeyboardViewController: UIInputViewController {
         revision += 1
         let requestRevision = revision, snapshot = composition
         conversionReady = false; waitingSpaceCount = 0; selected = nil
-        candidates = baseCandidates()
+        // Keep the previous row visible until the latest result arrives.
+        // Pending candidates are disabled below so stale text cannot be committed.
+        if snapshot.isEmpty { candidates = [] }
+        else if candidates.isEmpty { candidates = baseCandidates() }
         conversionTask?.cancel()
         renderState()
         guard !snapshot.isEmpty else { return }
@@ -249,15 +252,18 @@ final class KeyboardViewController: UIInputViewController {
         canvas.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !isJapanese || composition.isEmpty
         if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
-        while candidateKeys.count > candidates.count {
-            let key = candidateKeys.removeLast()
-            candidateStack.removeArrangedSubview(key)
-            key.removeFromSuperview()
+        UIView.performWithoutAnimation {
+            self.renderCandidates()
+            self.candidateStack.layoutIfNeeded()
         }
+    }
+    private func renderCandidates() {
         while candidateKeys.count < candidates.count {
-            let key = CandidateKey(type: .system)
+            let key = CandidateKey(type: .custom)
             key.titleLabel?.font = .systemFont(ofSize: 17)
-            key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
+            let textColor: UIColor = traitCollection.userInterfaceStyle == .light ? .black : .white
+            key.setTitleColor(textColor, for: .normal)
+            key.setTitleColor(textColor, for: .disabled)
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
@@ -266,11 +272,22 @@ final class KeyboardViewController: UIInputViewController {
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
-            candidateKeys.forEach { $0.setTitleColor(isLight ? .black : .white, for: .normal) }
+            candidateKeys.forEach {
+                $0.setTitleColor(isLight ? .black : .white, for: .normal)
+                $0.setTitleColor(isLight ? .black : .white, for: .disabled)
+            }
             candidateStyleIsLight = isLight
         }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
+            let visible = index < candidates.count
+            if key.isHidden == visible { key.isHidden = !visible }
+            key.isEnabled = visible && conversionReady
+            guard visible else {
+                key.onSelect = nil
+                key.actionRevision = -1
+                continue
+            }
             let value = candidates[index]
             let valueChanged = key.renderedValue != value
             if valueChanged {
@@ -287,7 +304,7 @@ final class KeyboardViewController: UIInputViewController {
                 key.onSelect = { [weak self] in
                     guard let self else { return }
                     self.syncHostChange()
-                    guard self.revision == displayedRevision else { return }
+                    guard self.revision == displayedRevision, self.conversionReady else { return }
                     self.commit(value, learn: true)
                 }
                 key.actionRevision = displayedRevision
