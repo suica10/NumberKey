@@ -1,16 +1,14 @@
 import SwiftUI
-import UIKit
-import UniformTypeIdentifiers
 
 @main
 struct NumberKeyApp: App {
+    init() { KeyboardSettings.migrateLegacyAppPreferences() }
     var body: some Scene { WindowGroup { SettingsView() } }
 }
 
 struct SettingsView: View {
     @State private var layout = KeyboardSettings().snapshot
     @State private var selected: Slot?
-    @State private var copied = false
     @State private var sample = ""
     private struct Slot: Equatable { let row: Int; let column: Int }
     var body: some View {
@@ -59,7 +57,7 @@ struct SettingsView: View {
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
                 }
                 Section("定型文") {
-                    Text("ここに登録した文章は、キーボードのスペースキーを長押しすると上からリストで表示されます。")
+                    Text("ここに登録した文章は自動保存され、キーボードのスペースキーを長押しすると上からリストで表示されます。")
                         .font(.footnote).foregroundStyle(.secondary)
                     ForEach(Array(layout.phrases.indices), id: \.self) { index in
                         HStack(spacing: 10) {
@@ -83,15 +81,9 @@ struct SettingsView: View {
                     Text("\(layout.phrases.count) / 20")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("キーボードに反映") {
-                    Button(copied ? "コピーしました" : "配置・定型文をコピー") {
-                        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: layout.exportString()]], options: [.localOnly: true])
-                        copied = true
-                    }.font(.headline)
-                    Text("配置をコピーしたあと、キーボードの「123」を長押しして「配置・定型文を読み込む」を選びます。")
-                    Text("読み込みには、iPhoneの設定 → 一般 → キーボード → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。貼り付けの確認が出たら許可します。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Text("設定を読み込むときだけクリップボードを使います。入力内容は送信せず、選んだ変換候補を端末内に学習します。")
+                Section("キーボードへの反映") {
+                    Text("キー配置と定型文は自動保存されます。キーボードを次に開いたときに反映されます。")
+                    Text("入力内容は送信せず、選んだ変換候補を端末内に学習します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("入力を試す") {
@@ -101,7 +93,7 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("使い方") {
-                    Text("「123」の長押し：カーソル移動・配置と定型文の読み込み")
+                    Text("「123」の長押し：カーソルを左右に移動")
                     Text("地球儀：日本語／English切り替え（長押しメニューで次のキーボードへ）")
                     Text("シフトを2回タップ：大文字を固定")
                     Text("スペースを長押し：入力モード選択・定型文入力")
@@ -110,7 +102,7 @@ struct SettingsView: View {
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.3.0 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v0.3.2 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
@@ -118,7 +110,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("NumberKey")
-            .onChange(of: layout) { _, value in KeyboardSettings().snapshot = value; copied = false }
+            .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
         }
     }
     private func select(_ slot: Slot) {
