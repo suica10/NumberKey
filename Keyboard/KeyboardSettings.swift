@@ -1,5 +1,15 @@
 import Foundation
 
+func japaneseFullWidth(_ text: String) -> String {
+    String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+        switch scalar.value {
+        case 0x21...0x7E: UnicodeScalar(scalar.value + 0xFEE0)!
+        case 0x00A5: UnicodeScalar(0xFFE5)!
+        default: scalar
+        }
+    }))
+}
+
 struct LayoutSettings: Codable, Equatable {
     var version = 1
     var rows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"].map { line in
