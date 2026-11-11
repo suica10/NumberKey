@@ -26,6 +26,7 @@ final class KeyboardCanvas: UIView {
     private var spaceButton: KeyboardKey?
     private var bottom: [KeyboardKey] = []
     private var popup: UILabel?
+    private var composingState: Bool?
     private var shifted = false
     private var symbols = false
     private var symbolPage = 0
@@ -36,7 +37,7 @@ final class KeyboardCanvas: UIView {
         self.settings = settings; self.shifted = shifted
         self.symbols = symbols; self.symbolPage = symbolPage
         subviews.forEach { $0.removeFromSuperview() }
-        popup = nil; characterRows = []; bottom = []
+        popup = nil; composingState = nil; characterRows = []; bottom = []
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
         if symbols {
             let mainSymbols = ["-", "/", ":", ";", "(", ")", "$", "&", "@", String(UnicodeScalar(34)!)]
@@ -209,13 +210,25 @@ final class KeyboardCanvas: UIView {
         spaceButton?.accessibilityLabel = japanese ? "日本語入力" : "スペース"
     }
     func setComposing(_ composing: Bool) {
+        guard composingState != composing else { return }
+        composingState = composing
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
         bottom.last?.accessibilityLabel = composing ? "確定" : "改行"
     }
     private func showPopup(_ key: UIButton) {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        hidePopup()
-        let label = UILabel()
+        let label: UILabel
+        if let existing = popup {
+            label = existing
+        } else {
+            label = UILabel()
+            label.isUserInteractionEnabled = false
+            label.accessibilityElementsHidden = true
+            addSubview(label)
+            popup = label
+        }
+        label.isHidden = false
+        bringSubviewToFront(label)
         label.text = key.title(for: .normal)
         label.textAlignment = .center
         label.font = .systemFont(ofSize: 32)
@@ -227,9 +240,8 @@ final class KeyboardCanvas: UIView {
                              y: max(0, key.frame.minY - 43), width: key.bounds.width + 18, height: 48)
         label.isUserInteractionEnabled = false
         label.accessibilityElementsHidden = true
-        addSubview(label); popup = label
     }
-    private func hidePopup() { popup?.removeFromSuperview(); popup = nil }
+    private func hidePopup() { popup?.isHidden = true }
     @objc private func doubleShift(_ g: UITapGestureRecognizer) { onCaps?() }
     @objc private func deleteHold(_ g: UILongPressGestureRecognizer) { onDeleteHold?(g) }
     @objc private func returnHold(_ g: UILongPressGestureRecognizer) {
