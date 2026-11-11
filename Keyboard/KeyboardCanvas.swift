@@ -26,7 +26,7 @@ final class KeyboardCanvas: UIView {
     private var bottom: [KeyboardKey] = []
     private var popup: UILabel?
     private var shifted = false
-    private var dark: Bool { traitCollection.userInterfaceStyle != .light }
+    private var dark: Bool { settings.theme == 2 || (settings.theme == 0 && traitCollection.userInterfaceStyle != .light) }
     private var keyColor: UIColor { dark ? UIColor(white: 0.38, alpha: 1) : .white }
 
     func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool) {
