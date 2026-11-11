@@ -34,8 +34,11 @@ final class KeyboardCanvas: UIView {
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; characterRows = []; bottom = []
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
-        values = symbols ? [settings.rows[0], Array("!@#$%^&*()").map(String.init),
-                            Array("[]{}<>+=/").map(String.init), Array("_\\|~\u{0060}：；").map(String.init)] : settings.rows
+        values = settings.rows
+        if symbols {
+            let symbolRows: [String] = ["!@#$%^&*()", "[]{}<>+=/", "_\\|~\u{0060}：；"]
+            values = [settings.rows[0]] + symbolRows.map { line in line.map { String($0) } }
+        }
         for row in values {
             characterRows.append(row.map { text in
                 let button = makeKey(text) { [weak self] in self?.onText?(text) }

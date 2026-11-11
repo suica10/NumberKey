@@ -2,15 +2,16 @@ import Foundation
 
 struct LayoutSettings: Codable, Equatable {
     var version = 1
-    var rows = [Array("1234567890").map(String.init), Array("qwertyuiop").map(String.init),
-                Array("asdfghjkl").map(String.init), Array("zxcvbnm").map(String.init)]
+    var rows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"].map { line in
+        line.map { character in String(character) }
+    }
     var keyHeight: Double = 0
     var theme = 2
     var japanese = true
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
     var isValid: Bool {
-        version == 1 && rows.map(\.count) == [10, 10, 9, 7]
+        version == 1 && rows.map { $0.count } == [10, 10, 9, 7]
         && rows.joined().allSatisfy { $0.count == 1 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
         && keyHeight.isFinite && (keyHeight == 0 || (32...60).contains(keyHeight))
         && (0...2).contains(theme)
