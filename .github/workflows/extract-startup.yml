@@ -1,0 +1,38 @@
+name: Extract startup crash reports
+on:
+  push:
+    paths: ['.github/workflows/extract-startup.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  extract:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Read failed simulator results
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p build
+          gh api repos/suica10/NumberKey/actions/artifacts/13822131861/zip > build/original.zip
+          unzip -q build/original.zip -d build/previous
+          xcrun xcresulttool get test-results summary --path build/previous/KeyboardStartup.xcresult || true
+          xcrun xcresulttool export diagnostics --path build/previous/KeyboardStartup.xcresult --output-path build/exported || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          for p in Path('build/exported').rglob('*'):
+              if not p.is_file() or p.suffix not in ('.ips', '.crash'): continue
+              text=p.read_text(errors='replace')
+              if 'NumberKey' not in text: continue
+              print('\nCRASH FILE:',p)
+              print(text[:18000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extracted-startup-crashes
+          path: build/exported
+          retention-days: 7
