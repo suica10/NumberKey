@@ -195,7 +195,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func insert(_ text: String) {
         syncHostChange()
-        let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
+        let roman = text.utf8.count == 1 && text.utf8.allSatisfy { (65...90).contains($0) || (97...122).contains($0) || $0 == 39 }
         let isRomanInput = roman && !symbols
         if isJapanese && (isRomanInput || !composition.isEmpty) {
             if composition.input.count >= 96 { commitRaw() }
@@ -234,7 +234,7 @@ final class KeyboardViewController: UIInputViewController {
             self.conversionReady = true
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             self.waitingSpaceCount = 0
-            self.renderState()
+            self.renderState(updateMarked: self.selected != nil)
         }
     }
     private func baseCandidates() -> [String] {
@@ -254,7 +254,6 @@ final class KeyboardViewController: UIInputViewController {
         if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
         UIView.performWithoutAnimation {
             self.renderCandidates()
-            self.candidateStack.layoutIfNeeded()
         }
     }
     private func renderCandidates() {
