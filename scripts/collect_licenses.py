@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SEARCH = [ROOT / 'Vendor', ROOT / '.build/checkouts', ROOT / 'build/SourcePackages/checkouts']
+SEARCH = [ROOT / 'ThirdPartyLicenses', ROOT / 'Vendor', ROOT / '.build/checkouts', ROOT / 'build/SourcePackages/checkouts']
 chunks = [
     'NumberKey uses AzooKeyKanaKanjiConverter and its bundled dictionaries.\n'
     'Converter revision: 5a9c4f672f627c8db48241a3abc22409257f92cb\n'

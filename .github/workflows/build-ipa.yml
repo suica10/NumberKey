@@ -8,6 +8,7 @@ on:
       - 'Keyboard/**'
       - 'Tests/**'
       - 'scripts/**'
+      - 'ThirdPartyLicenses/**'
       - 'Package.swift'
       - 'project.yml'
       - '.github/workflows/build-ipa.yml'
