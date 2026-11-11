@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: '5.0'
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.3.1'
-    CURRENT_PROJECT_VERSION: '6'
+    MARKETING_VERSION: '0.3.2'
+    CURRENT_PROJECT_VERSION: '7'
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -25,6 +25,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.suica10.NumberKey
+        CODE_SIGN_ENTITLEMENTS: App/NumberKey.entitlements
         GENERATE_INFOPLIST_FILE: NO
     info:
       path: App/Info.plist
@@ -48,6 +49,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.suica10.NumberKey.Keyboard
+        CODE_SIGN_ENTITLEMENTS: Keyboard/NumberKeyKeyboard.entitlements
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
