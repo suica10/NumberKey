@@ -59,6 +59,10 @@ struct SettingsView: View {
                 Section("定型文") {
                     Text("ここに登録した文章は自動保存され、キーボードのスペースキーを長押しすると上からリストで表示されます。")
                         .font(.footnote).foregroundStyle(.secondary)
+                    if !KeyboardSettings.sharedContainerAvailable {
+                        Text("このアプリの署名にApp Group \(KeyboardSettings.appGroupIdentifier) が含まれていません。アプリ本体とキーボード拡張の両方を、このApp Group入りのプロビジョニングプロファイルで署名してください。")
+                            .font(.footnote).foregroundStyle(.red)
+                    }
                     ForEach(Array(layout.phrases.indices), id: \.self) { index in
                         HStack(spacing: 10) {
                             TextField("定型文を入力", text: $layout.phrases[index], axis: .vertical)
@@ -102,7 +106,7 @@ struct SettingsView: View {
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.3.2 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v0.3.3 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
