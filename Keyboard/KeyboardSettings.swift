@@ -39,9 +39,6 @@ struct LayoutSettings: Codable, Equatable {
         && Set(rows.joined()).count == rows.reduce(0) { $0 + $1.count }
         && keyHeight.isFinite && (keyHeight == 0 || (32...60).contains(keyHeight))
         && (0...2).contains(theme)
-        && phrases.count <= 20 && phrases.allSatisfy {
-            $0.count <= 100 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-        }
     }
     func exportString() -> String {
         Self.prefix + ((try? JSONEncoder().encode(self)) ?? Data()).base64EncodedString()
