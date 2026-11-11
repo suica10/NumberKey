@@ -18,19 +18,11 @@ struct LayoutSettings: Codable, Equatable {
     var keyHeight: Double = 0
     var theme = 2
     var japanese = true
-    var phrases: [String] = LayoutSettings.defaultPhrases
 
-    static let defaultPhrases = [
-        "よろしくお願いします。",
-        "ありがとうございます。",
-        "お世話になっております。",
-        "確認しました。",
-        "後ほどご連絡します。"
-    ]
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
 
-    private enum CodingKeys: String, CodingKey { case version, rows, keyHeight, theme, japanese, phrases }
+    private enum CodingKeys: String, CodingKey { case version, rows, keyHeight, theme, japanese }
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,7 +31,6 @@ struct LayoutSettings: Codable, Equatable {
         keyHeight = try values.decodeIfPresent(Double.self, forKey: .keyHeight) ?? 0
         theme = try values.decodeIfPresent(Int.self, forKey: .theme) ?? 2
         japanese = try values.decodeIfPresent(Bool.self, forKey: .japanese) ?? true
-        phrases = try values.decodeIfPresent([String].self, forKey: .phrases) ?? Self.defaultPhrases
     }
 
     var isValid: Bool {
