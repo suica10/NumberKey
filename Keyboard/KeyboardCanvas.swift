@@ -129,7 +129,7 @@ final class KeyboardCanvas: UIView {
 
     private func resolvedKeyHeight(for width: CGFloat) -> CGFloat {
         let base = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
-        return base + width * 37 / 1206
+        return base + width * 18.5 / 1206
     }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
