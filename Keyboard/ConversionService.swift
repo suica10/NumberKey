@@ -14,13 +14,17 @@ actor ConversionService {
         return directory
     }()
 
+    func warmUp() {
+        if converter == nil { converter = .withDefaultDictionary() }
+    }
+
     func candidates(for composition: ComposingText) -> [String] {
         guard !composition.isEmpty else { learningCandidates.removeAll(); return [] }
-        if converter == nil { converter = .withDefaultDictionary() }
+        warmUp()
         guard let converter else { return [] }
         learningCandidates.removeAll()
         let results = converter.requestCandidates(composition, options: .init(
-            N_best: 5,
+            N_best: 4,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
@@ -30,7 +34,7 @@ actor ConversionService {
             sharedContainerURL: memoryDirectoryURL,
             textReplacer: .empty,
             specialCandidateProviders: [],
-            metadata: .init(versionString: "NumberKey 0.3.0")
+            metadata: .init(versionString: "NumberKey 0.3.2")
         ))
         var seen = Set<String>()
         let visibleCandidates = results.mainResults.compactMap { candidate -> String? in
