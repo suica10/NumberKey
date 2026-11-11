@@ -1,6 +1,12 @@
 import UIKit
 import KanaKanjiConverterModuleWithDefaultDictionary
 
+private final class CandidateKey: UIButton {
+    var onSelect: (() -> Void)?
+
+    @objc func activate() { onSelect?() }
+}
+
 @MainActor
 final class KeyboardViewController: UIInputViewController {
     var settings = KeyboardSettings()
@@ -15,6 +21,7 @@ final class KeyboardViewController: UIInputViewController {
     private var shifted = false
     private var capsLocked = false
     private var symbols = false
+    private var symbolPage = 0
     private var revision = 0
     private var conversionReady = false
     private var waitingSpaceCount = 0
@@ -24,6 +31,7 @@ final class KeyboardViewController: UIInputViewController {
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
+    private var candidateKeys: [CandidateKey] = []
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
@@ -108,7 +116,7 @@ final class KeyboardViewController: UIInputViewController {
         let snapshot = settings.snapshot
         overrideUserInterfaceStyle = snapshot.theme == 1 ? .light : snapshot.theme == 2 ? .dark : .unspecified
         view.backgroundColor = traitCollection.userInterfaceStyle == .light ? UIColor(white: 0.82, alpha: 1) : UIColor(white: 0.17, alpha: 1)
-        canvas.configure(snapshot, shifted: shifted, symbols: symbols)
+        canvas.configure(snapshot, shifted: shifted, symbols: symbols, symbolPage: symbolPage, japanese: isJapanese)
         canvas.updateShift(shifted, caps: capsLocked)
         renderState(updateMarked: false)
         view.setNeedsLayout()
@@ -145,7 +153,7 @@ final class KeyboardViewController: UIInputViewController {
         guard let snapshot = LayoutSettings.decode(text) else { return false }
         syncHostChange(); commitCurrent()
         settings.apply(snapshot)
-        shifted = false; capsLocked = false; symbols = false
+        shifted = false; capsLocked = false; symbols = false; symbolPage = 0
         if isViewLoaded { rebuildCanvas() }
         return true
     }
@@ -165,7 +173,7 @@ final class KeyboardViewController: UIInputViewController {
         guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
         settings.japanese = japanese
-        shifted = false; capsLocked = false; symbols = false
+        shifted = false; capsLocked = false; symbols = false; symbolPage = 0
         rebuildCanvas()
     }
     private func handle(_ action: KeyboardAction) {
@@ -175,12 +183,34 @@ final class KeyboardViewController: UIInputViewController {
             if symbols { symbols = false; rebuildCanvas() }
             else { shifted.toggle(); capsLocked = false; canvas.updateShift(shifted, caps: false) }
         case .delete: backspace()
-        case .symbols: symbols.toggle(); rebuildCanvas()
+        case .symbols:
+            symbols.toggle(); symbolPage = 0; rebuildCanvas()
+        case .symbolPage:
+            guard symbols else { return }
+            symbolPage = symbolPage == 0 ? 1 : 0
+            rebuildCanvas()
         case .space: space()
         case .enter:
             if composition.isEmpty { editor.insert("\n") }
             else { commitCurrent() }
+        case .paste: pasteFromClipboard()
         }
+    }
+    private func pasteFromClipboard() {
+        syncHostChange()
+        guard hasFullAccess else {
+            let alert = UIAlertController(
+                title: "ペーストにはフルアクセスが必要です",
+                message: "設定 → 一般 → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        commitCurrent()
+        editor.insert(text)
     }
     private func insert(_ text: String) {
         syncHostChange()
@@ -233,25 +263,35 @@ final class KeyboardViewController: UIInputViewController {
             editor.show(display, caret: caret)
         }
         canvas.setComposing(!composition.isEmpty)
-        view.setNeedsLayout()
-        candidateStack.arrangedSubviews.forEach { candidateStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        let shouldHideCandidates = !isJapanese || composition.isEmpty
+        if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
+        while candidateKeys.count > candidates.count {
+            let key = candidateKeys.removeLast()
+            candidateStack.removeArrangedSubview(key)
+            key.removeFromSuperview()
+        }
+        while candidateKeys.count < candidates.count {
+            let key = CandidateKey(type: .system)
+            key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
+            candidateKeys.append(key)
+            candidateStack.addArrangedSubview(key)
+        }
         let displayedRevision = revision
-        for (index, value) in candidates.enumerated() {
-            let key = UIButton(type: .system)
-            key.setTitle(value, for: .normal)
+        for (index, key) in candidateKeys.enumerated() {
+            let value = candidates[index]
+            if key.title(for: .normal) != value { key.setTitle(value, for: .normal) }
             key.titleLabel?.font = .systemFont(ofSize: 17)
             key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.backgroundColor = selected == index ? UIColor(white: 0.45, alpha: 0.6) : .clear
             key.layer.cornerRadius = 4
             key.accessibilityIdentifier = "candidate." + value
-            key.addAction(UIAction { [weak self] _ in
+            key.onSelect = { [weak self] in
                 guard let self else { return }
                 self.syncHostChange()
                 guard self.revision == displayedRevision else { return }
-                self.commit(value)
-            }, for: .touchUpInside)
-            candidateStack.addArrangedSubview(key)
+                self.commit(value, learn: true)
+            }
         }
     }
     private func space() {
@@ -264,7 +304,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func commitCurrent() {
         guard !composition.isEmpty else { return }
-        if let selected, candidates.indices.contains(selected) { commit(candidates[selected]) }
+        if let selected, candidates.indices.contains(selected) { commit(candidates[selected], learn: true) }
         else { commitRaw() }
     }
     private func commitRaw() {
@@ -273,7 +313,8 @@ final class KeyboardViewController: UIInputViewController {
         if text.hasSuffix("n") { text.removeLast(); text += "ん" }
         commit(text)
     }
-    private func commit(_ text: String) {
+    private func commit(_ text: String, learn: Bool = false) {
+        if learn { Task { await service.learn(text) } }
         editor.commit(text)
         resetComposition()
     }
