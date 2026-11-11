@@ -77,7 +77,6 @@ final class KeyboardViewController: UIInputViewController {
             button.showsMenuAsPrimaryAction = false
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
-        canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
@@ -135,30 +134,6 @@ final class KeyboardViewController: UIInputViewController {
         let right = UIAction(title: "カーソルを右へ", image: UIImage(systemName: "arrow.right")) { [weak self] _ in self?.moveCursor(1) }
         button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right])])
     }
-    private func configureSpaceMenu(_ button: UIButton) {
-        updateSpaceMenu(button)
-        button.addAction(UIAction { [weak self, weak button] _ in
-            guard let self, let button else { return }
-            self.settings = KeyboardSettings()
-            _ = self.settings.defaults.synchronize()
-            self.updateSpaceMenu(button)
-        }, for: .touchDown)
-    }
-    private func updateSpaceMenu(_ button: UIButton) {
-        let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
-        let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
-        let presetActions = settings.snapshot.phrases.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { phrase in
-            UIAction(title: phrase) { [weak self] _ in self?.insertPhrase(phrase) }
-        }
-        let phrases = presetActions.isEmpty
-            ? [UIAction(title: "アプリで定型文を登録", attributes: .disabled) { _ in }]
-            : presetActions
-        button.menu = UIMenu(children: [
-            UIMenu(options: .displayInline, children: [japanese, english]),
-            UIMenu(options: .displayInline, children: phrases)
-        ])
-        button.showsMenuAsPrimaryAction = false
-    }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
         guard let snapshot = LayoutSettings.decode(text) else { return false }
@@ -175,11 +150,6 @@ final class KeyboardViewController: UIInputViewController {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
-    private func insertPhrase(_ phrase: String) {
-        syncHostChange(); commitCurrent()
-        editor.insert(phrase)
-    }
-
     private func setLanguage(_ japanese: Bool) {
         guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
