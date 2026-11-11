@@ -117,6 +117,7 @@ final class KeyboardViewController: UIInputViewController {
         overrideUserInterfaceStyle = snapshot.theme == 1 ? .light : snapshot.theme == 2 ? .dark : .unspecified
         view.backgroundColor = traitCollection.userInterfaceStyle == .light ? UIColor(white: 0.82, alpha: 1) : UIColor(white: 0.17, alpha: 1)
         canvas.configure(snapshot, shifted: shifted, symbols: symbols, symbolPage: symbolPage, japanese: isJapanese)
+        canvas.setJapaneseMode(isJapanese)
         canvas.updateShift(shifted, caps: capsLocked)
         renderState(updateMarked: false)
         view.setNeedsLayout()
@@ -222,7 +223,8 @@ final class KeyboardViewController: UIInputViewController {
             scheduleConversion()
         } else {
             commitCurrent()
-            editor.insert(shifted && !isJapanese ? text.uppercased() : text)
+            let committedText = isJapanese && symbols ? japaneseFullWidth(text) : text
+            editor.insert(shifted && !isJapanese ? text.uppercased() : committedText)
         }
         if shifted && !capsLocked { shifted = false; canvas.updateShift(false, caps: false) }
     }
