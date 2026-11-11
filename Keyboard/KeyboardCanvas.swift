@@ -18,6 +18,7 @@ final class KeyboardCanvas: UIView {
     var onCaps: (() -> Void)?
     var configureGlobe: ((UIButton) -> Void)?
     var configureMenu: ((UIButton) -> Void)?
+    var configureSpaceMenu: ((UIButton) -> Void)?
     private var settings = LayoutSettings.defaults
     private var characterRows: [[KeyboardKey]] = []
     private var values: [[String]] = []
@@ -73,6 +74,7 @@ final class KeyboardCanvas: UIView {
         configureGlobe?(globe)
         let space = makeKey("space") { [weak self] in self?.onAction?(.space) }
         space.accessibilityLabel = "スペース"
+        configureSpaceMenu?(space)
         let enter = makeKey("return") { [weak self] in self?.onAction?(.enter) }
         enter.accessibilityLabel = "改行"
         bottom = [symbolsKey, globe, space, enter]

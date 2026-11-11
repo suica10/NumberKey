@@ -52,9 +52,19 @@ final class KeyboardViewController: UIInputViewController {
         canvas.onDeleteHold = { [weak self] in self?.repeatDelete($0) }
         canvas.configureGlobe = { [weak self] button in
             guard let self else { return }
-            button.addTarget(self, action: #selector(self.handleInputModeList(from:with:)), for: .allTouchEvents)
+            button.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.setLanguage(!self.isJapanese)
+            }, for: .touchUpInside)
+            button.menu = UIMenu(children: [
+                UIAction(title: "次のキーボードへ", image: UIImage(systemName: "keyboard")) { [weak self] _ in
+                    self?.advanceToNextInputMode()
+                }
+            ])
+            button.showsMenuAsPrimaryAction = false
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
+        canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
         rebuildCanvas()
@@ -104,9 +114,7 @@ final class KeyboardViewController: UIInputViewController {
         view.setNeedsLayout()
     }
     private func configureMenu(_ button: UIButton) {
-        let japanese = UIAction(title: "日本語ローマ字", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
-        let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
-        let importLayout = UIAction(title: "配置を読み込む", image: UIImage(systemName: "square.and.arrow.down"),
+        let importLayout = UIAction(title: "配置・定型文を読み込む", image: UIImage(systemName: "square.and.arrow.down"),
                                     attributes: hasFullAccess ? [] : [.disabled]) { [weak self] _ in
             guard let self, self.hasFullAccess else { return }
             guard let text = UIPasteboard.general.string, self.applyLayoutString(text) else {
@@ -115,7 +123,22 @@ final class KeyboardViewController: UIInputViewController {
         }
         let left = UIAction(title: "カーソルを左へ", image: UIImage(systemName: "arrow.left")) { [weak self] _ in self?.moveCursor(-1) }
         let right = UIAction(title: "カーソルを右へ", image: UIImage(systemName: "arrow.right")) { [weak self] _ in self?.moveCursor(1) }
-        button.menu = UIMenu(children: [japanese, english, UIMenu(options: .displayInline, children: [left, right, importLayout])])
+        button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right, importLayout])])
+    }
+    private func configureSpaceMenu(_ button: UIButton) {
+        let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
+        let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
+        let presetActions = settings.snapshot.phrases.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { phrase in
+            UIAction(title: phrase) { [weak self] _ in self?.insertPhrase(phrase) }
+        }
+        let phrases = presetActions.isEmpty
+            ? [UIAction(title: "アプリで定型文を登録", attributes: .disabled) { _ in }]
+            : presetActions
+        button.menu = UIMenu(children: [
+            UIMenu(options: .displayInline, children: [japanese, english]),
+            UIMenu(options: .displayInline, children: phrases)
+        ])
+        button.showsMenuAsPrimaryAction = false
     }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
@@ -133,7 +156,13 @@ final class KeyboardViewController: UIInputViewController {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
+    private func insertPhrase(_ phrase: String) {
+        syncHostChange(); commitCurrent()
+        editor.insert(phrase)
+    }
+
     private func setLanguage(_ japanese: Bool) {
+        guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
         settings.japanese = japanese
         shifted = false; capsLocked = false; symbols = false

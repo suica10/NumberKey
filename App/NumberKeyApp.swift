@@ -58,12 +58,37 @@ struct SettingsView: View {
                     }
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
                 }
+                Section("定型文") {
+                    Text("ここに登録した文章は、キーボードのスペースキーを長押しすると上からリストで表示されます。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(Array(layout.phrases.indices), id: \.self) { index in
+                        HStack(spacing: 10) {
+                            TextField("定型文を入力", text: $layout.phrases[index], axis: .vertical)
+                                .lineLimit(1...3)
+                            Button(role: .destructive) {
+                                layout.phrases.remove(at: index)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .accessibilityLabel("定型文を削除")
+                        }
+                    }
+                    if layout.phrases.count < 20 {
+                        Button {
+                            layout.phrases.append("")
+                        } label: {
+                            Label("定型文を追加", systemImage: "plus")
+                        }
+                    }
+                    Text("\(layout.phrases.count) / 20")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("キーボードに反映") {
-                    Button(copied ? "配置をコピーしました" : "配置をコピー") {
+                    Button(copied ? "コピーしました" : "配置・定型文をコピー") {
                         UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: layout.exportString()]], options: [.localOnly: true])
                         copied = true
                     }.font(.headline)
-                    Text("コピー後、キーボードの「123」を長押しして「配置を読み込む」を選びます。")
+                    Text("配置をコピーしたあと、キーボードの「123」を長押しして「配置・定型文を読み込む」を選びます。")
                     Text("読み込みには、iPhoneの設定 → 一般 → キーボード → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。貼り付けの確認が出たら許可します。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("配置は明示的に読み込んだときだけクリップボードから取得します。入力内容を送信する通信処理はありません。")
@@ -76,14 +101,15 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("使い方") {
-                    Text("「123」の長押し：日本語／Englishの切り替え・カーソル移動・配置の読み込み")
-                    Text("地球儀：キーボードの切り替え")
+                    Text("「123」の長押し：カーソル移動・配置と定型文の読み込み")
+                    Text("地球儀：日本語／English切り替え（長押しメニューで次のキーボードへ）")
                     Text("シフトを2回タップ：大文字を固定")
-                    Text("削除を長押し：連続削除")
+                    Text("スペースを長押し：入力モード選択・定型文入力
+削除を長押し：連続削除")
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.2.0 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v0.3.0 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
