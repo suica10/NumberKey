@@ -197,9 +197,9 @@ final class KeyboardViewController: UIInputViewController {
         syncHostChange()
         let roman = text.utf8.count == 1 && text.utf8.allSatisfy { (65...90).contains($0) || (97...122).contains($0) || $0 == 39 }
         let isRomanInput = roman && !symbols
-        if isJapanese && (isRomanInput || !composition.isEmpty) {
+        if isJapanese && (isRomanInput || !composition.isEmpty || text == "-") {
             if composition.input.count >= 96 { commitRaw() }
-            let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
+            let inputText = isRomanInput ? text.lowercased() : text == "-" ? "ー" : japaneseFullWidth(text)
             composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
             selected = nil
             scheduleConversion()
