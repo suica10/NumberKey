@@ -1,4 +1,4 @@
-# NumberKey v0.1.1
+# NumberKey v0.1.2
 
 iOS 17以降の日本語ローマ字入力／英字QWERTYキーボード。最上段に数字を常時表示します。
 
@@ -9,9 +9,17 @@ GitHub ActionsでiPhone/iPad（arm64）向けの未署名IPA生成に成功し�
 iOS 27シミュレーター上で、キーボード画面の起動・再表示・設定画面への往復の2件のテストも成功しました。
 実機での地球儀による切り替えと、Feather再署名後の動作は再確認が必要です。
 
-[成功したビルドとIPA](https://github.com/suica10/NumberKey/actions/runs/42944599509)
+[成功したビルドとIPA](https://github.com/suica10/NumberKey/actions/runs/42948006584)
 
 Artifactsの `NumberKey-unsigned-IPA` をダウンロードし、ZIP内の `NumberKey-unsigned.ipa` を取り出してください。
+
+## v0.1.2の修正
+
+キーボード拡張が参照する `@rpath/llama.framework/llama` が配布IPAに含まれず、画面の起動前に `DYLD / Library missing` で終了する不具合を修正しました。Xcodeの解決済みパッケージからiOS実機用フレームワークを本体アプリの `Frameworks` に同梱します。ニューラル変換は引き続き無効です。
+
+完成IPAのMach-O依存関係を本体・キーボード拡張・同梱ライブラリについて再帰的に検査し、欠落がある場合はビルドを失敗させます。今回のIPAは依存関係検査・変換テスト4件・iOS 27の画面起動テスト2件に成功しました。Featherで再署名した実機の切り替えは再確認が必要です。
+
+[今回の起動テスト](https://github.com/suica10/NumberKey/actions/runs/42947840152)
 
 ## v0.1.1の修正
 
