@@ -12,7 +12,7 @@ func japaneseFullWidth(_ text: String) -> String {
 
 struct LayoutSettings: Codable, Equatable {
     var version = 1
-    var rows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"].map { line in
+    var rows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl-", "zxcvbnm"].map { line in
         line.map { character in String(character) }
     }
     var keyHeight: Double = 0
@@ -43,9 +43,9 @@ struct LayoutSettings: Codable, Equatable {
     }
 
     var isValid: Bool {
-        version == 1 && rows.map { $0.count } == [10, 10, 9, 7]
+        version == 1 && (rows.map { $0.count } == [10, 10, 10, 7] || rows.map { $0.count } == [10, 10, 9, 7])
         && rows.joined().allSatisfy { $0.count == 1 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
-        && Set(rows.joined()).count == 36
+        && Set(rows.joined()).count == rows.reduce(0) { $0 + $1.count }
         && keyHeight.isFinite && (keyHeight == 0 || (32...60).contains(keyHeight))
         && (0...2).contains(theme)
         && phrases.count <= 20 && phrases.allSatisfy {
@@ -64,8 +64,31 @@ struct LayoutSettings: Codable, Equatable {
 }
 
 struct KeyboardSettings {
+    static let appGroupIdentifier = "group.jp.suica10.NumberKey"
     let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults ?? UserDefaults(suiteName: Self.appGroupIdentifier) ?? .standard
+    }
+
+    static func migrateLegacyAppPreferences() {
+        guard let shared = UserDefaults(suiteName: appGroupIdentifier),
+              !shared.bool(forKey: "layout.v1.migratedFromApp") else { return }
+        let legacy = UserDefaults.standard
+        for key in ["layout.v1", "japanese", "topKeys", "theme"] {
+            if let value = legacy.object(forKey: key) { shared.set(value, forKey: key) }
+        }
+        shared.set(true, forKey: "layout.v1.migratedFromApp")
+    }
+
+    static func migrateLegacyExtensionPreferences() {
+        guard let shared = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        let legacy = UserDefaults.standard
+        for key in ["layout.v1", "japanese", "topKeys", "theme"] {
+            if shared.object(forKey: key) == nil, let value = legacy.object(forKey: key) {
+                shared.set(value, forKey: key)
+            }
+        }
+    }
     var snapshot: LayoutSettings {
         get {
             if let data = defaults.data(forKey: "layout.v1"),
