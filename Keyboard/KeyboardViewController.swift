@@ -3,6 +3,9 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 
 private final class CandidateKey: UIButton {
     var onSelect: (() -> Void)?
+    var renderedValue: String?
+    var isSelectedCandidate: Bool?
+    var actionRevision = -1
 
     @objc func activate() { onSelect?() }
 }
@@ -32,10 +35,12 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
     private var candidateKeys: [CandidateKey] = []
+    private var candidateStyleIsLight: Bool?
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        KeyboardSettings.migrateLegacyExtensionPreferences()
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateStack.axis = .horizontal
@@ -73,6 +78,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
+        Task { await service.warmUp() }
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
         rebuildCanvas()
@@ -123,16 +129,9 @@ final class KeyboardViewController: UIInputViewController {
         view.setNeedsLayout()
     }
     private func configureMenu(_ button: UIButton) {
-        let importLayout = UIAction(title: "配置・定型文を読み込む", image: UIImage(systemName: "square.and.arrow.down"),
-                                    attributes: hasFullAccess ? [] : [.disabled]) { [weak self] _ in
-            guard let self, self.hasFullAccess else { return }
-            guard let text = UIPasteboard.general.string, self.applyLayoutString(text) else {
-                self.showImportError(); return
-            }
-        }
         let left = UIAction(title: "カーソルを左へ", image: UIImage(systemName: "arrow.left")) { [weak self] _ in self?.moveCursor(-1) }
         let right = UIAction(title: "カーソルを右へ", image: UIImage(systemName: "arrow.right")) { [weak self] _ in self?.moveCursor(1) }
-        button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right, importLayout])])
+        button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right])])
     }
     private func configureSpaceMenu(_ button: UIButton) {
         let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
@@ -215,7 +214,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func insert(_ text: String) {
         syncHostChange()
-        let roman = text.count == 1 && text.range(of: "^[a-zA-Z'-]$", options: .regularExpression) != nil
+        let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
         if isJapanese && roman && !symbols {
             if composition.input.count >= 96 { commitRaw() }
             composition.insertAtCursorPosition(text.lowercased(), inputStyle: .roman2kana)
@@ -238,7 +237,7 @@ final class KeyboardViewController: UIInputViewController {
         guard !snapshot.isEmpty else { return }
         let service = service
         conversionTask = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 55_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: 25_000_000) } catch { return }
             guard !Task.isCancelled else { return }
             let result = await service.candidates(for: snapshot)
             guard !Task.isCancelled, let self, self.revision == requestRevision else { return }
@@ -274,25 +273,41 @@ final class KeyboardViewController: UIInputViewController {
         }
         while candidateKeys.count < candidates.count {
             let key = CandidateKey(type: .system)
+            key.titleLabel?.font = .systemFont(ofSize: 17)
+            key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
+            key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
+            key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
             candidateKeys.append(key)
             candidateStack.addArrangedSubview(key)
         }
+        let isLight = traitCollection.userInterfaceStyle == .light
+        if candidateStyleIsLight != isLight {
+            candidateKeys.forEach { $0.setTitleColor(isLight ? .black : .white, for: .normal) }
+            candidateStyleIsLight = isLight
+        }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
             let value = candidates[index]
-            if key.title(for: .normal) != value { key.setTitle(value, for: .normal) }
-            key.titleLabel?.font = .systemFont(ofSize: 17)
-            key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
-            key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
-            key.backgroundColor = selected == index ? UIColor(white: 0.45, alpha: 0.6) : .clear
-            key.layer.cornerRadius = 4
-            key.accessibilityIdentifier = "candidate." + value
-            key.onSelect = { [weak self] in
-                guard let self else { return }
-                self.syncHostChange()
-                guard self.revision == displayedRevision else { return }
-                self.commit(value, learn: true)
+            let valueChanged = key.renderedValue != value
+            if valueChanged {
+                key.setTitle(value, for: .normal)
+                key.accessibilityIdentifier = "candidate." + value
+                key.renderedValue = value
+            }
+            let isSelected = selected == index
+            if key.isSelectedCandidate != isSelected {
+                key.backgroundColor = isSelected ? UIColor(white: 0.45, alpha: 0.6) : .clear
+                key.isSelectedCandidate = isSelected
+            }
+            if key.actionRevision != displayedRevision || valueChanged {
+                key.onSelect = { [weak self] in
+                    guard let self else { return }
+                    self.syncHostChange()
+                    guard self.revision == displayedRevision else { return }
+                    self.commit(value, learn: true)
+                }
+                key.actionRevision = displayedRevision
             }
         }
     }
