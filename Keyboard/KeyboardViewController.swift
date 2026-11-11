@@ -86,6 +86,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        KeyboardSettings.migrateLegacyExtensionPreferences()
+        settings = KeyboardSettings()
         rebuildCanvas()
     }
     override func viewWillDisappear(_ animated: Bool) {
@@ -134,6 +136,15 @@ final class KeyboardViewController: UIInputViewController {
         button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right])])
     }
     private func configureSpaceMenu(_ button: UIButton) {
+        updateSpaceMenu(button)
+        button.addAction(UIAction { [weak self, weak button] _ in
+            guard let self, let button else { return }
+            self.settings = KeyboardSettings()
+            _ = self.settings.defaults.synchronize()
+            self.updateSpaceMenu(button)
+        }, for: .touchDown)
+    }
+    private func updateSpaceMenu(_ button: UIButton) {
         let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
         let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
         let presetActions = settings.snapshot.phrases.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { phrase in
@@ -215,9 +226,11 @@ final class KeyboardViewController: UIInputViewController {
     private func insert(_ text: String) {
         syncHostChange()
         let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
-        if isJapanese && roman && !symbols {
+        let isRomanInput = roman && !symbols
+        if isJapanese && (isRomanInput || !composition.isEmpty) {
             if composition.input.count >= 96 { commitRaw() }
-            composition.insertAtCursorPosition(text.lowercased(), inputStyle: .roman2kana)
+            let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
+            composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
             selected = nil
             scheduleConversion()
         } else {
