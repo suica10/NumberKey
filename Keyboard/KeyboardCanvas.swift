@@ -24,6 +24,7 @@ final class KeyboardCanvas: UIView {
     private var values: [[String]] = []
     private var shiftButton: KeyboardKey?
     private var deleteButton: KeyboardKey?
+    private var spaceButton: KeyboardKey?
     private var bottom: [KeyboardKey] = []
     private var popup: UILabel?
     private var shifted = false
@@ -92,11 +93,16 @@ final class KeyboardCanvas: UIView {
         configureGlobe?(globe)
         let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
         configureSpaceMenu?(space)
+        let comma = makeKey(japanese ? "、" : ",") { [weak self] in self?.onText?(japanese ? "、" : ",") }
+        comma.accessibilityLabel = japanese ? "読点" : "comma"
+        let period = makeKey(japanese ? "。" : ".") { [weak self] in self?.onText?(japanese ? "。" : ".") }
+        period.accessibilityLabel = japanese ? "句点" : "period"
         let enter = makeKey("return") { [weak self] in self?.onAction?(.enter) }
         enter.accessibilityLabel = "改行"
         let pasteHold = UILongPressGestureRecognizer(target: self, action: #selector(returnHold(_:)))
         enter.addGestureRecognizer(pasteHold)
-        bottom = [symbolsKey, globe, space, enter]
+        spaceButton = space
+        bottom = [symbolsKey, globe, comma, space, period, enter]
         setJapaneseMode(japanese)
         updateShift(shifted, caps: false)
         setNeedsLayout()
@@ -131,7 +137,7 @@ final class KeyboardCanvas: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard characterRows.count == (symbols ? 3 : 4), bottom.count == 4 else { return }
+        guard characterRows.count == (symbols ? 3 : 4), bottom.count == 6 else { return }
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
         let verticalGap = width * 26 / 1206
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
@@ -166,11 +172,11 @@ final class KeyboardCanvas: UIView {
             shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
         }
         deleteButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
-        let weights: [CGFloat] = [132, 130, 588, 282]
-        let available = width - 2 * edge - 3 * gap
+        let weights: [CGFloat] = [120, 110, 100, 460, 100, 242]
+        let available = width - 2 * edge - CGFloat(bottom.count - 1) * gap
         var x = edge
         let bottomY = 3 + CGFloat(symbols ? 3 : 4) * (keyHeight + verticalGap)
-        for i in 0..<4 {
+        for i in bottom.indices {
             let key = bottom[i], w = available * weights[i] / weights.reduce(0, +)
             key.frame = CGRect(x: x, y: bottomY, width: w, height: keyHeight)
             key.titleLabel?.font = .systemFont(ofSize: min(20, max(15, font * 0.82)))
@@ -196,9 +202,8 @@ final class KeyboardCanvas: UIView {
         }
     }
     func setJapaneseMode(_ japanese: Bool) {
-        guard bottom.count > 2 else { return }
-        bottom[2].setTitle(japanese ? "日本語" : "space", for: .normal)
-        bottom[2].accessibilityLabel = japanese ? "日本語入力" : "スペース"
+        spaceButton?.setTitle(japanese ? "日本語" : "space", for: .normal)
+        spaceButton?.accessibilityLabel = japanese ? "日本語入力" : "スペース"
     }
     func setComposing(_ composing: Bool) {
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
