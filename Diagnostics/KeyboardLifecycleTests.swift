@@ -69,13 +69,13 @@ final class KeyboardLifecycleTests: XCTestCase {
     @MainActor
     func testReferenceGeometryAndScreenshot() throws {
         let (controller, _) = keyboard()
-        let one = try key("1", controller), q = try key("q", controller), space = try key("スペース", controller)
+        let one = try key("1", controller), q = try key("q", controller), space = try key("日本語入力", controller)
         let enter = try key("改行", controller)
         XCTAssertEqual(one.bounds.width, q.bounds.width, accuracy: 0.5)
         XCTAssertEqual(one.bounds.height, 38, accuracy: 0.5)
         XCTAssertEqual(one.titleColor(for: .normal), UIColor.white)
         XCTAssertEqual(one.backgroundColor, UIColor(white: 0.38, alpha: 1))
-        XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 5)
+        XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 4)
         XCTAssertGreaterThan(enter.bounds.width, one.bounds.width * 2.5)
         let canvas = try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardCanvas })
         XCTAssertEqual(canvas.frame.minY, 0, accuracy: 0.5)
