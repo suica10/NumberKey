@@ -75,8 +75,8 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
         guard width > 0 else { return }
-        let candidateHeight: CGFloat = isJapanese ? 34 : 0
-        candidateScroll.isHidden = !isJapanese
+        let candidateHeight: CGFloat = isJapanese && !composition.isEmpty ? 34 : 0
+        candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: 0, width: width, height: candidateHeight)
         let keysHeight = canvas.preferredHeight(width: width)
         canvas.frame = CGRect(x: 0, y: candidateHeight, width: width, height: keysHeight)
@@ -204,6 +204,7 @@ final class KeyboardViewController: UIInputViewController {
             editor.show(display, caret: caret)
         }
         canvas.setComposing(!composition.isEmpty)
+        view.setNeedsLayout()
         candidateStack.arrangedSubviews.forEach { candidateStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         let displayedRevision = revision
         for (index, value) in candidates.enumerated() {

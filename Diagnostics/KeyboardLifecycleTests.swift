@@ -76,6 +76,8 @@ final class KeyboardLifecycleTests: XCTestCase {
         XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 5)
         XCTAssertGreaterThan(enter.bounds.width, one.bounds.width * 2.5)
         let canvas = try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardCanvas })
+        XCTAssertEqual(canvas.frame.minY, 0, accuracy: 0.5)
+        canvas.layoutIfNeeded()
         let format = UIGraphicsImageRendererFormat(); format.scale = 3
         let image = UIGraphicsImageRenderer(size: canvas.bounds.size, format: format).image { canvas.layer.render(in: $0.cgContext) }
         let attachment = XCTAttachment(image: image); attachment.name = "NumberKey-reference-layout"; attachment.lifetime = .keepAlways
