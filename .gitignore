@@ -1,0 +1,8 @@
+Vendor/
+build/
+dist/
+*.xcodeproj/
+.DS_Store
+__pycache__/
+.build/
+.swiftpm/

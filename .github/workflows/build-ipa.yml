@@ -1,0 +1,77 @@
+name: Build unsigned IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'App/**'
+      - 'Keyboard/**'
+      - 'Tests/**'
+      - 'scripts/**'
+      - 'Package.swift'
+      - 'project.yml'
+      - '.github/workflows/build-ipa.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Prepare pinned converter and dictionaries
+        run: bash scripts/bootstrap.sh
+      - name: Generate Xcode project
+        run: |
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          xcodegen generate
+      - name: Test kana input and dictionary conversion
+        run: swift test --configuration release
+      - name: Resolve iOS dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project NumberKey.xcodeproj -scheme NumberKey \
+            -clonedSourcePackagesDirPath build/SourcePackages
+      - name: Bundle third-party notices
+        run: python3 scripts/collect_licenses.py
+      - name: Build for iPhone and iPad without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild build \
+            -project NumberKey.xcodeproj -scheme NumberKey \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            | tee build/xcodebuild.log
+      - name: Package and validate IPA
+        run: python3 scripts/package_ipa.py
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NumberKey-unsigned-IPA
+          path: |
+            dist/NumberKey-unsigned.ipa
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
