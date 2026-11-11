@@ -1,0 +1,58 @@
+name: Diagnose keyboard startup
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Diagnostics/**'
+      - '.github/workflows/diagnose-keyboard.yml'
+permissions:
+  contents: read
+jobs:
+  lifecycle:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare converter
+        run: bash scripts/bootstrap.sh
+      - name: Generate simulator test project
+        run: |
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          cat >> project.yml <<'SPEC'
+          SPEC
+          python3 Diagnostics/configure_project.py
+          xcodegen generate
+      - name: Select iPhone simulator
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, os
+          devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
+          candidates=[d for runtime,items in devices.items() if '.iOS-' in runtime for d in items if d['isAvailable'] and 'iPhone' in d['name']]
+          device=candidates[0]
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('SIMULATOR_ID='+device['udid']+'\n')
+          print(device)
+          PY
+      - name: Test keyboard view lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild test -project NumberKey.xcodeproj -scheme KeyboardStartup \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/Simulator \
+            -resultBundlePath build/KeyboardStartup.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | tee build/keyboard-startup.log
+      - name: Upload startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-startup-diagnostics
+          path: |
+            build/keyboard-startup.log
+            build/KeyboardStartup.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
