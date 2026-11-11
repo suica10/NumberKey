@@ -4,8 +4,13 @@ iOS 17以降の日本語ローマ字入力／英字QWERTYキーボード。最�
 
 ## 状態
 
-実装とGitHub Actions設定を準備した開発版です。このパッケージ自体にIPAは含まれていません。
-macOS上のビルド・Swiftテスト・実機操作は、最初のGitHub Actions実行後に確認が必要です。
+GitHub ActionsでiPhone/iPad（arm64）向けの未署名IPA生成に成功した開発版です。
+ローマ字入力・促音拗音・辞書変換・連続変換の4件の自動テストが成功しました。
+実機での表示・操作、再署名後のインストールは未確認です。
+
+[成功したビルドとIPA](https://github.com/suica10/NumberKey/actions/runs/42940405757)
+
+Artifactsの `NumberKey-unsigned-IPA` をダウンロードし、ZIP内の `NumberKey-unsigned.ipa` を取り出してください。
 
 ## 機能
 
