@@ -49,14 +49,18 @@ final class RerankScorer: @unchecked Sendable {
             if scalars.count == 1, let scalar = scalars.first { map[scalar.value] = index }
         }
         charToID = map
-        data = try Data(contentsOf: weightsURL, options: [.mappedIfSafe])
+        let loaded = try Data(contentsOf: weightsURL, options: [.mappedIfSafe])
+        data = loaded
+        // ポインタはローカル変数だけから作る (init 中に self へ触れるクロージャを
+        // 挟むと definite-initialization チェックに落ちるため)。
+        let base = loaded.withUnsafeBytes { raw in
+            raw.baseAddress!.assumingMemoryBound(to: Float.self)
+        }
         func pointer(_ name: String) throws -> UnsafePointer<Float> {
             guard let entry = manifest[name], entry.count == 2 else {
                 throw NSError(domain: "RerankScorer", code: 2)
             }
-            return data.withUnsafeBytes { raw in
-                UnsafePointer<Float>(raw.baseAddress!.assumingMemoryBound(to: Float.self)) + entry[0]
-            }
+            return UnsafePointer(base) + entry[0]
         }
         emb = try pointer("embedding.weight")
         wih0 = try pointer("gru.weight_ih_l0"); whh0 = try pointer("gru.weight_hh_l0")
