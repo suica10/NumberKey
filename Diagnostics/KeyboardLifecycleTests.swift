@@ -53,6 +53,19 @@ final class KeyboardLifecycleTests: XCTestCase {
     private func key(_ id: String, _ controller: KeyboardViewController) throws -> UIButton {
         try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == id || $0.accessibilityLabel == id })
     }
+    /// 変換候補のように非同期で現れるキーを待つ。変換はデバウンス+actor の
+    /// 非同期処理なので、テスト側で主ランループを回して完了を待つ必要がある。
+    @MainActor
+    private func waitForKey(_ id: String, _ controller: KeyboardViewController, timeout: TimeInterval = 10) throws -> UIButton {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let found = descendants(controller.view).compactMap({ $0 as? UIButton }).first(where: { $0.accessibilityIdentifier == id || $0.accessibilityLabel == id }) {
+                return found
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        return try key(id, controller)
+    }
     @MainActor
     func testControllerLoadsAndSurvivesRepeatedPresentation() throws {
         let (controller, _) = keyboard()
@@ -76,7 +89,10 @@ final class KeyboardLifecycleTests: XCTestCase {
         XCTAssertEqual(one.titleColor(for: .normal), UIColor.white)
         XCTAssertEqual(one.backgroundColor, UIColor(white: 0.38, alpha: 1))
         XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 4)
-        XCTAssertGreaterThan(enter.bounds.width, one.bounds.width * 2.5)
+        // 改行キーの幅は下段の重み [120,110,100,460,100,242] から決まり、
+        // 単位キーの約2.31倍が現行レイアウトの設計値。旧基準の2.5倍は
+        // 重み調整前の期待値だったため、設計値に合わせて 2.2 倍で担保する。
+        XCTAssertGreaterThan(enter.bounds.width, one.bounds.width * 2.2)
         let canvas = try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardCanvas })
         XCTAssertEqual(canvas.frame.minY, 0, accuracy: 0.5)
         canvas.layoutIfNeeded()
@@ -93,7 +109,7 @@ final class KeyboardLifecycleTests: XCTestCase {
         controller.textDidChange(nil)
         XCTAssertEqual(document.text as String, "かな")
         XCTAssertNotNil(document.marked)
-        try key("candidate.カナ", controller).sendActions(for: .touchUpInside)
+        try waitForKey("candidate.カナ", controller).sendActions(for: .touchUpInside)
         XCTAssertEqual(document.text as String, "カナ")
         XCTAssertNil(document.marked)
     }
