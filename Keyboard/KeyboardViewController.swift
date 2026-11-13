@@ -87,6 +87,11 @@ final class KeyboardViewController: UIInputViewController {
     private let recentEmojiStore = RecentEmojiStore()
     private var emojiPanelOpenedAt: Date?
     private var lastStripValues: [String] = []
+    // 販売ビルド: 体験期間が終了したときだけ、キーの代わりに出す案内ビュー。
+    private let expiredView = UIView()
+    private let expiredLabel = UILabel()
+    private let expiredOpenButton = UIButton(type: .system)
+    private var purchaseExpired = false
     private let clipboardStack = UIStackView()
     private let clipboardClearButton = UIButton(type: .system)
     private var isClipboardPicking = false
@@ -160,7 +165,31 @@ final class KeyboardViewController: UIInputViewController {
         Task { await service.warmUp() }
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
+        // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
+        // アプリを開くボタンは試みとして置き、効かなくても文言で案内できる形にする。
+        expiredView.isHidden = true
+        expiredLabel.text = "体験期間（1週間）が終了しました。One Keyboard アプリを開いて購入すると、引き続き使えます。"
+        expiredLabel.numberOfLines = 0
+        expiredLabel.textAlignment = .center
+        expiredLabel.font = .systemFont(ofSize: 16)
+        expiredView.addSubview(expiredLabel)
+        expiredOpenButton.setTitle("One Keyboard アプリを開く", for: .normal)
+        expiredOpenButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        expiredOpenButton.addAction(UIAction { [weak self] _ in
+            guard let url = URL(string: "onekeyboard://") else { return }
+            self?.extensionContext?.open(url, completionHandler: nil)
+        }, for: .touchUpInside)
+        expiredView.addSubview(expiredOpenButton)
+        view.addSubview(expiredView)
+        refreshPurchaseState()
         rebuildCanvas()
+    }
+
+    /// 購入/トライアル状態を判定し直す。期限切れのときだけ案内ビューを出す。
+    /// 読み取りに失敗した場合は PurchaseGate 側のフェイルオープンで trial 扱いに
+    /// なるため、ここでロックされることはない。
+    private func refreshPurchaseState() {
+        purchaseExpired = PurchaseGate.evaluateForDisplay() == .expired
     }
 
     private var panelsBuilt = false
@@ -317,6 +346,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // キーボードを開くたびに判定し直す（アプリ側で購入された場合に追随する）。
+        refreshPurchaseState()
         if PerfProbe.enabled { PerfProbe.shared.reset(); perfLabel.text = nil }
         settings = KeyboardSettings()
         // 設定が変わったときだけキャンバスを組み直す。毎回組み直すと、キーボードを
@@ -433,6 +464,17 @@ final class KeyboardViewController: UIInputViewController {
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
         canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
+        // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
+        expiredView.isHidden = !purchaseExpired
+        if purchaseExpired {
+            expiredView.frame = view.bounds
+            expiredView.backgroundColor = view.backgroundColor
+            expiredLabel.textColor = traitCollection.userInterfaceStyle == .light ? UIColor.black : UIColor.white
+            let midY = view.bounds.height / 2
+            expiredLabel.frame = CGRect(x: 24, y: midY - 78, width: max(0, width - 48), height: 92)
+            expiredOpenButton.frame = CGRect(x: 24, y: midY + 22, width: max(0, width - 48), height: 44)
+            view.bringSubviewToFront(expiredView)
+        }
         let height = topHeight + perfHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
     }

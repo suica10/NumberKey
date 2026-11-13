@@ -9,9 +9,34 @@ struct NumberKeyApp: App {
 struct SettingsView: View {
     @State private var layout = KeyboardSettings().snapshot
     @State private var sample = ""
+    @StateObject private var store = StoreManager()
+    @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
+    /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
+    private var displayState: PurchaseState { store.isPurchased ? .unlocked : gateState }
     var body: some View {
         NavigationStack {
             Form {
+                Section("ご利用状況") {
+                    switch displayState {
+                    case .unlocked:
+                        Label("購入済み", systemImage: "checkmark.circle")
+                        Text("全機能を利用できます。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    case .trial(let daysLeft):
+                        Text("体験中（残り\(daysLeft)日）")
+                        Text("体験期間は1週間です。終了後はキーボードが使えなくなります。購入すると、そのまま引き続き使えます。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        purchaseButtons
+                    case .expired:
+                        Text("体験期間が終了しました")
+                        Text("購入すると、引き続き使えます。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        purchaseButtons
+                    }
+                    if let message = store.message {
+                        Text(message).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 Section("表示") {
                     Picker("配色", selection: $layout.theme) {
                         Text("自動").tag(0); Text("ライト").tag(1); Text("ダーク").tag(2)
@@ -55,7 +80,7 @@ struct SettingsView: View {
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.3.7 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
@@ -64,7 +89,31 @@ struct SettingsView: View {
             }
             .navigationTitle("NumberKey")
             .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
+            .task {
+                await store.refresh()
+                // 購入確認で unlocked フラグが書かれた可能性があるので判定し直す。
+                gateState = PurchaseGate.currentState()
+            }
+            .onChange(of: store.isPurchased) { _, purchased in
+                if purchased { gateState = .unlocked }
+            }
         }
+    }
+    @ViewBuilder
+    private var purchaseButtons: some View {
+        Button {
+            Task { await store.purchase() }
+        } label: {
+            if let product = store.product {
+                Text("購入する（\(product.displayPrice)）")
+            } else {
+                Text("購入する")
+            }
+        }
+        .disabled(store.isWorking || store.product == nil)
+        Button("購入を復元") { Task { await store.restore() } }
+            .disabled(store.isWorking)
+        if store.isWorking { ProgressView() }
     }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),

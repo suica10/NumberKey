@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: '5.0'
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.3.29'
-    CURRENT_PROJECT_VERSION: '34'
+    MARKETING_VERSION: '0.3.30'
+    CURRENT_PROJECT_VERSION: '35'
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -22,6 +22,7 @@ targets:
     sources:
       - App
       - path: Keyboard/KeyboardSettings.swift
+      - path: Keyboard/PurchaseState.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.onejpkey.NumberKey
@@ -34,6 +35,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: NumberKey
+        CFBundleURLTypes:
+          - CFBundleURLName: jp.onejpkey.NumberKey
+            CFBundleURLSchemes:
+              - onekeyboard
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
