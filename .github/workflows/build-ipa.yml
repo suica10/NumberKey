@@ -1,6 +1,11 @@
 name: Build unsigned IPA
 on:
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip swift test (faster trial builds)'
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -35,7 +40,24 @@ jobs:
         run: |
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
           xcodegen generate
+      - name: Cache SwiftPM test build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-test-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-test-
+      - name: Cache DerivedData and SourcePackages
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/DerivedData
+            build/SourcePackages
+          key: ${{ runner.os }}-deriveddata-${{ hashFiles('Package.swift', 'Package.resolved', 'project.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-deriveddata-
       - name: Test kana input and dictionary conversion
+        if: ${{ !inputs.skip_tests }}
         run: swift test --configuration release
       - name: Resolve iOS dependencies
         run: |
