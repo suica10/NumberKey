@@ -34,9 +34,10 @@ final class DictionaryPacksTests: XCTestCase {
         XCTAssertEqual(pack.patternCompletions(forTyped: "o"), [])
     }
 
-    func testStoreDefaultsToIndustrialOnly() {
+    func testStoreDefaultsToIndustrialAndSNS() {
         let store = DictionaryPackStore(defaults: defaults)
         XCTAssertTrue(store.isEnabled(.industrial))
+        XCTAssertTrue(store.isEnabled(.sns))
         XCTAssertFalse(store.isEnabled(.anime))
         XCTAssertFalse(store.isEnabled(.oshikatsuCommon))
         XCTAssertFalse(store.isEnabled(.oshikatsuMale))

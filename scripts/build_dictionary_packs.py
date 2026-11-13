@@ -4,7 +4,7 @@
 出力 (Keyboard/ 配下、キーボード拡張に同梱される):
   dictionary_industrial.tsv / dictionary_anime.tsv
   dictionary_oshikatsu_common.tsv / dictionary_oshikatsu_male.tsv
-  dictionary_oshikatsu_female.tsv
+  dictionary_oshikatsu_female.tsv / dictionary_sns.tsv
 
 形式: 1行 = 読み<TAB>表記。
 メモ欄に「要確認」「確認待ち」「未確認」を含む行は、読みや表記が未確定なので
@@ -117,6 +117,13 @@ def main():
             units[current].append(line)
     for name, unit_lines in units.items():
         total += emit(name, parse_rows(unit_lines))
+
+    # SNS: 「## 種リスト」から「## 収録しなかったもの」の手前まで
+    lines = (DOCS / "sns-dictionary-seed.md").read_text(encoding="utf-8").splitlines()
+    body = section(lines,
+                   lambda l: l.startswith("## 種リスト"),
+                   lambda l: l.startswith("## 収録しなかったもの"))
+    total += emit("sns", parse_rows(body))
 
     print(f"合計: {total} 件")
     return 0

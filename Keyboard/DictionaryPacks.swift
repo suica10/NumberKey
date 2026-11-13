@@ -14,6 +14,7 @@ import Foundation
 
 enum DictionaryPackID: String, CaseIterable {
     case industrial
+    case sns
     case anime
     case oshikatsuCommon
     case oshikatsuMale
@@ -22,6 +23,7 @@ enum DictionaryPackID: String, CaseIterable {
     var displayName: String {
         switch self {
         case .industrial: return "工業"
+        case .sns: return "SNS"
         case .anime: return "アニメ"
         case .oshikatsuCommon: return "推し活・共通"
         case .oshikatsuMale: return "推し活・男性"
@@ -32,6 +34,7 @@ enum DictionaryPackID: String, CaseIterable {
     var resourceName: String {
         switch self {
         case .industrial: return "dictionary_industrial"
+        case .sns: return "dictionary_sns"
         case .anime: return "dictionary_anime"
         case .oshikatsuCommon: return "dictionary_oshikatsu_common"
         case .oshikatsuMale: return "dictionary_oshikatsu_male"
@@ -39,8 +42,8 @@ enum DictionaryPackID: String, CaseIterable {
         }
     }
 
-    /// 初期状態で有効なのは、本人の日常用途である工業辞書だけ。
-    var defaultEnabled: Bool { self == .industrial }
+    /// 初期状態で有効なのは、本人の日常用途である工業と、全員が日常的に使う SNS。
+    var defaultEnabled: Bool { self == .industrial || self == .sns }
 }
 
 struct DictionaryPackData {
@@ -99,7 +102,9 @@ private final class DictionaryBundleAnchor {}
 // MARK: - 有効状態の保存
 
 final class DictionaryPackStore {
-    private static let storageKey = "dictionaryPacks.enabled.v1"
+    // v2: SNS パックを標準 ON で追加したため、保存済み設定がある端末にも
+    // 初期状態を一度だけ再適用する (キーを上げると旧設定は読まれなくなる)。
+    private static let storageKey = "dictionaryPacks.enabled.v2"
     private let defaults: UserDefaults
     private var enabled: Set<DictionaryPackID>
 
