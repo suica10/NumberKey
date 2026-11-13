@@ -745,7 +745,7 @@ final class KeyboardViewController: UIInputViewController {
 /// 定型文パネルの1行。カードを左へスワイプすると右端に「削除」が出る
 /// （iOS標準のスワイプ削除と同じ作法）。並び替えモードではスワイプを止め、
 /// 右端に ↑ ↓ ボタンを出す。
-private final class PhraseRowView: UIView {
+private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
     var onTap: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMoveUp: (() -> Void)?
@@ -845,6 +845,16 @@ private final class PhraseRowView: UIView {
         }
     }
 
+    // UIView 自身が持つ同名メソッドの override（extension には置けない）。
+    // 横方向のパンだけをスワイプとして開始し、縦はパネルのスクロールに譲る。
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+        let velocity = pan.velocity(in: self)
+        return abs(velocity.x) > abs(velocity.y)
+    }
+
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
@@ -859,13 +869,5 @@ private final class PhraseRowView: UIView {
         default:
             break
         }
-    }
-}
-
-extension PhraseRowView: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: self)
-        return abs(velocity.x) > abs(velocity.y)
     }
 }
