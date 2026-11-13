@@ -46,7 +46,6 @@ final class KeyboardViewController: UIInputViewController {
     private let captureButtonRow = UIStackView()
     private let phrasePanel = UIView()
     private let phraseTitle = UILabel()
-    private let phraseLanguageControl = UISegmentedControl(items: ["日本語", "English"])
     private let phraseCloseButton = UIButton(type: .system)
     private let phraseScroll = UIScrollView()
     private let phraseStack = UIStackView()
@@ -113,12 +112,6 @@ final class KeyboardViewController: UIInputViewController {
         phraseTitle.text = "定型文"
         phraseTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         phrasePanel.addSubview(phraseTitle)
-        phraseLanguageControl.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            self.setLanguage(self.phraseLanguageControl.selectedSegmentIndex == 0)
-            self.hidePhrasePicker()
-        }, for: .valueChanged)
-        phrasePanel.addSubview(phraseLanguageControl)
         phraseCloseButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         phraseCloseButton.addAction(UIAction { [weak self] _ in self?.hidePhrasePicker() }, for: .touchUpInside)
         phrasePanel.addSubview(phraseCloseButton)
@@ -230,8 +223,7 @@ final class KeyboardViewController: UIInputViewController {
             phrasePanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, phrasePanelHeight - 12))
             let panelWidth = phrasePanel.bounds.width
             let panelHeight = phrasePanel.bounds.height
-            phraseTitle.frame = CGRect(x: 12, y: 10, width: 70, height: 28)
-            phraseLanguageControl.frame = CGRect(x: 88, y: 8, width: 170, height: 32)
+            phraseTitle.frame = CGRect(x: 12, y: 10, width: 200, height: 28)
             phraseCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
             phraseScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
@@ -287,7 +279,6 @@ final class KeyboardViewController: UIInputViewController {
         phraseStore.reload()
         pickerDeleteMode = false
         isPicking = true
-        phraseLanguageControl.selectedSegmentIndex = isJapanese ? 0 : 1
         rebuildPhraseRows()
         view.setNeedsLayout()
     }
@@ -484,7 +475,10 @@ final class KeyboardViewController: UIInputViewController {
         revision += 1
         let requestRevision = revision, snapshot = composition
         conversionReady = false; waitingSpaceCount = 0; selected = nil
-        candidates = baseCandidates()
+        // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
+        // 残したまま新しい変換結果を待つ（空のときだけ基本候補で埋める）。
+        if snapshot.isEmpty { candidates = [] }
+        else if candidates.isEmpty { candidates = baseCandidates() }
         conversionTask?.cancel()
         renderState()
         guard !snapshot.isEmpty else { return }
@@ -497,7 +491,7 @@ final class KeyboardViewController: UIInputViewController {
             self.syncHostChange()
             guard self.revision == requestRevision else { return }
             var seen = Set<String>()
-            self.candidates = (result + self.baseCandidates()).filter { seen.insert($0).inserted }
+            self.candidates = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted }.prefix(30))
             self.conversionReady = true
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             self.waitingSpaceCount = 0
@@ -556,6 +550,8 @@ final class KeyboardViewController: UIInputViewController {
             if key.actionRevision != displayedRevision || valueChanged {
                 key.onSelect = { [weak self] in
                     guard let self else { return }
+                    // 変換待ちの間に残っている前回候補は、確定に使わない。
+                    guard self.conversionReady else { return }
                     self.syncHostChange()
                     guard self.revision == displayedRevision else { return }
                     self.commit(value, learn: true)
