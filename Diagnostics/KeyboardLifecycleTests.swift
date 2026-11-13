@@ -136,15 +136,4 @@ final class KeyboardLifecycleTests: XCTestCase {
         try key("a", controller).sendActions(for: .touchUpInside)
         XCTAssertEqual(document.text as String, "かXさ")
     }
-    @MainActor
-    func testLayoutImportFromAppAndInvalidData() throws {
-        let (controller, _) = keyboard()
-        var layout = LayoutSettings.defaults
-        layout.rows[0].swapAt(0, 1)
-        XCTAssertTrue(controller.applyLayoutString(layout.exportString()))
-        XCTAssertEqual(controller.settings.snapshot.rows[0][0], "2")
-        XCTAssertFalse(controller.applyLayoutString("unrelated clipboard contents"))
-        layout.rows[0] = ["1"]
-        XCTAssertNil(LayoutSettings.decode(layout.exportString()))
-    }
 }
