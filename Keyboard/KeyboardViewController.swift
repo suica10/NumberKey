@@ -40,10 +40,10 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
-    private let captureBar = UIView()
-    private let captureStack = UIStackView()
-    private let captureLabel = UILabel()
+    private let capturePanel = UIView()
+    private let captureTitle = UILabel()
     private let captureDisplay = UILabel()
+    private let captureButtonRow = UIStackView()
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
@@ -62,40 +62,37 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
             candidateStack.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor)
         ])
-        captureBar.isHidden = true
-        view.addSubview(captureBar)
-        captureStack.axis = .horizontal
-        captureStack.spacing = 8
-        captureStack.alignment = .center
-        captureStack.translatesAutoresizingMaskIntoConstraints = false
-        captureLabel.text = "定型文を登録"
-        captureLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        // 定型文の登録は、枠（パネル）の中で完結させる。タイトル・入力テキスト・
+        // 保存/取消ボタンを1つの枠に入れ、「ここに入力する」ことが見て分かるようにする。
+        capturePanel.isHidden = true
+        capturePanel.layer.cornerRadius = 10
+        capturePanel.layer.borderWidth = 1
+        view.addSubview(capturePanel)
+        captureTitle.text = "定型文を登録"
+        captureTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        captureTitle.textColor = .secondaryLabel
+        capturePanel.addSubview(captureTitle)
+        captureDisplay.font = .systemFont(ofSize: 20)
+        captureDisplay.numberOfLines = 0
+        captureDisplay.lineBreakMode = .byWordWrapping
+        capturePanel.addSubview(captureDisplay)
+        captureButtonRow.axis = .horizontal
+        captureButtonRow.spacing = 8
+        captureButtonRow.alignment = .center
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let saveButton = UIButton(type: .system)
-        saveButton.setTitle("保存", for: .normal)
-        saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        saveButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: true) }, for: .touchUpInside)
         let cancelButton = UIButton(type: .system)
         cancelButton.setTitle("取消", for: .normal)
         cancelButton.titleLabel?.font = .systemFont(ofSize: 17)
         cancelButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: false) }, for: .touchUpInside)
-        captureStack.addArrangedSubview(captureLabel)
-        captureStack.addArrangedSubview(spacer)
-        captureStack.addArrangedSubview(saveButton)
-        captureStack.addArrangedSubview(cancelButton)
-        captureBar.addSubview(captureStack)
-        NSLayoutConstraint.activate([
-            captureStack.leadingAnchor.constraint(equalTo: captureBar.leadingAnchor, constant: 6),
-            captureStack.trailingAnchor.constraint(equalTo: captureBar.trailingAnchor, constant: -6),
-            captureStack.topAnchor.constraint(equalTo: captureBar.topAnchor),
-            captureStack.bottomAnchor.constraint(equalTo: captureBar.bottomAnchor)
-        ])
-        captureDisplay.font = .systemFont(ofSize: 20)
-        captureDisplay.numberOfLines = 0
-        captureDisplay.lineBreakMode = .byWordWrapping
-        captureDisplay.isHidden = true
-        view.addSubview(captureDisplay)
+        let saveButton = UIButton(type: .system)
+        saveButton.setTitle("保存", for: .normal)
+        saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        saveButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: true) }, for: .touchUpInside)
+        captureButtonRow.addArrangedSubview(spacer)
+        captureButtonRow.addArrangedSubview(cancelButton)
+        captureButtonRow.addArrangedSubview(saveButton)
+        capturePanel.addSubview(captureButtonRow)
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -146,22 +143,29 @@ final class KeyboardViewController: UIInputViewController {
         guard width > 0 else { return }
         let keysHeight = canvas.preferredHeight(width: width)
         let candidateHeight: CGFloat = isJapanese && !composition.isEmpty ? 34 : 0
-        // 登録中はキーボード全体を画面の約6割まで広げ、定型文の表示枠に充てる。
+        // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
-        let captureBarHeight: CGFloat = isCapturing ? 48 : 0
-        var captureDisplayHeight: CGFloat = 0
+        var capturePanelHeight: CGFloat = 0
         if isCapturing {
             let budget = UIScreen.main.bounds.height * 0.62
-            captureDisplayHeight = max(80, budget - captureBarHeight - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
+            capturePanelHeight = max(150, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
         }
-        captureBar.isHidden = !isCapturing
-        captureBar.frame = CGRect(x: 0, y: 0, width: width, height: captureBarHeight)
-        captureDisplay.isHidden = !isCapturing
-        captureDisplay.frame = CGRect(x: 10, y: captureBarHeight, width: max(0, width - 20), height: captureDisplayHeight)
+        capturePanel.isHidden = !isCapturing
+        if isCapturing {
+            let isLight = traitCollection.userInterfaceStyle == .light
+            capturePanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
+            capturePanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            capturePanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, capturePanelHeight - 12))
+            let panelWidth = capturePanel.bounds.width
+            let panelHeight = capturePanel.bounds.height
+            captureTitle.frame = CGRect(x: 12, y: 8, width: max(0, panelWidth - 24), height: 18)
+            captureButtonRow.frame = CGRect(x: 12, y: max(30, panelHeight - 50), width: max(0, panelWidth - 24), height: 42)
+            captureDisplay.frame = CGRect(x: 12, y: 30, width: max(0, panelWidth - 24), height: max(0, panelHeight - 30 - 56))
+        }
         candidateScroll.isHidden = candidateHeight == 0
-        candidateScroll.frame = CGRect(x: 0, y: captureBarHeight + captureDisplayHeight, width: width, height: candidateHeight)
-        canvas.frame = CGRect(x: 0, y: captureBarHeight + captureDisplayHeight + candidateHeight, width: width, height: keysHeight)
-        let height = captureBarHeight + captureDisplayHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
+        candidateScroll.frame = CGRect(x: 0, y: capturePanelHeight, width: width, height: candidateHeight)
+        canvas.frame = CGRect(x: 0, y: capturePanelHeight + candidateHeight, width: width, height: keysHeight)
+        let height = capturePanelHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
     }
     override func textDidChange(_ textInput: UITextInput?) {
@@ -246,13 +250,13 @@ final class KeyboardViewController: UIInputViewController {
         let document = BufferDocument()
         document.onChange = { [weak self] text in
             guard let self else { return }
-            self.captureDisplay.text = text.isEmpty ? "定型文を入力" : text
+            self.captureDisplay.text = text.isEmpty ? "ここに定型文を入力" : text
             self.captureDisplay.textColor = text.isEmpty ? .placeholderText
                 : (self.traitCollection.userInterfaceStyle == .light ? .black : .white)
         }
         captureDocument = document
         documentOverride = document
-        captureDisplay.text = "定型文を入力"
+        captureDisplay.text = "ここに定型文を入力"
         captureDisplay.textColor = .placeholderText
         updateCaptureStrip()
         view.setNeedsLayout()
@@ -281,8 +285,7 @@ final class KeyboardViewController: UIInputViewController {
         view.setNeedsLayout()
     }
     private func updateCaptureStrip() {
-        captureBar.isHidden = !isCapturing
-        captureDisplay.isHidden = !isCapturing
+        capturePanel.isHidden = !isCapturing
     }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
