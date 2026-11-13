@@ -6,7 +6,10 @@ import Foundation
 /// false にする（計測コード自体は記録がロック付き配列操作のみで軽い）。
 final class PerfProbe: @unchecked Sendable {
     static let shared = PerfProbe()
-    static let enabled = true
+    // 2026-11-13 の実機計測で役割を終えたため既定は無効。数字が要る調査の
+    // ときだけ true に戻す。その際、帯の表示は目障りにならない更新頻度と
+    // 色にすること (毎打鍵で数字が変わる高コントラスト表示は使用者が不快)。
+    static let enabled = false
 
     private struct Stat { var count = 0; var totalMs = 0.0; var maxMs = 0.0 }
     private let lock = NSLock()
