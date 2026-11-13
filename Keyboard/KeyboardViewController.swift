@@ -794,7 +794,7 @@ final class KeyboardViewController: UIInputViewController {
         guard !snapshot.isEmpty else { return }
         let service = service
         conversionTask = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 25_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: 12_000_000) } catch { return }
             guard !Task.isCancelled else { return }
             let result = await service.candidates(for: snapshot)
             guard !Task.isCancelled, let self, self.revision == requestRevision else { return }
@@ -802,11 +802,15 @@ final class KeyboardViewController: UIInputViewController {
             guard self.revision == requestRevision else { return }
             var seen = Set<String>()
             let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
-            self.candidates = Array(self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot)).prefix(30))
+            let newCandidates = Array(self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot)).prefix(30))
+            let candidatesChanged = newCandidates != self.candidates
+            if candidatesChanged { self.candidates = newCandidates }
             self.conversionReady = true
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
+            let hadWaitingSpace = self.waitingSpaceCount > 0
             self.waitingSpaceCount = 0
-            self.renderState()
+            // 候補が前回と同一なら候補欄の再描画は不要（体感の遅さ対策）。
+            if candidatesChanged || hadWaitingSpace { self.renderState() }
         }
     }
     /// composition の生のローマ字入力を復元する（英字候補の判定用）。
