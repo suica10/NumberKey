@@ -39,7 +39,7 @@ final class KeyboardViewController: UIInputViewController {
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
     private let clipboardStore = ClipboardHistoryStore()
-    private lazy var englishLexicon = EnglishLexicon.loadBundled()
+    private var englishLexicon: EnglishLexicon?
     private var englishSuggestions: [String] = []
     private var englishExtraValues: Set<String> = []
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
@@ -89,7 +89,13 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         KeyboardSettings.migrateLegacyExtensionPreferences()
-        _ = englishLexicon  // 単語リストの読み込みを初回打鍵ではなく起動時に済ませる
+        // 英単語リスト（約1MB）の読み込みは起動処理を止めないよう非同期で行う。
+        // 起動が重いとアップデート直後の初回表示で iOS に見限られ、代わりに
+        // システムキーボードが出てしまうことがある。
+        Task.detached(priority: .utility) { [weak self] in
+            let loaded = EnglishLexicon.loadBundled()
+            await MainActor.run { self?.englishLexicon = loaded }
+        }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateStack.axis = .horizontal
