@@ -12,7 +12,9 @@ func japaneseFullWidth(_ text: String) -> String {
 
 struct LayoutSettings: Codable, Equatable {
     var version = 1
-    var rows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl-", "zxcvbnm"].map { line in
+    /// キー配列は固定 (入れ替え機能は 0.3.27 で廃止)。旧設定に残る rows は
+    /// デコード時に無視される。
+    static let standardRows: [[String]] = ["1234567890", "qwertyuiop", "asdfghjkl-", "zxcvbnm"].map { line in
         line.map { character in String(character) }
     }
     var keyHeight: Double = 0
@@ -25,21 +27,18 @@ struct LayoutSettings: Codable, Equatable {
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
 
-    private enum CodingKeys: String, CodingKey { case version, rows, keyHeight, theme, japanese }
+    private enum CodingKeys: String, CodingKey { case version, keyHeight, theme, japanese }
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        rows = try values.decodeIfPresent([[String]].self, forKey: .rows) ?? LayoutSettings.defaults.rows
         keyHeight = try values.decodeIfPresent(Double.self, forKey: .keyHeight) ?? 0
         theme = try values.decodeIfPresent(Int.self, forKey: .theme) ?? 2
         japanese = try values.decodeIfPresent(Bool.self, forKey: .japanese) ?? true
     }
 
     var isValid: Bool {
-        version == 1 && (rows.map { $0.count } == [10, 10, 10, 7] || rows.map { $0.count } == [10, 10, 9, 7])
-        && rows.joined().allSatisfy { $0.count == 1 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
-        && Set(rows.joined()).count == rows.reduce(0) { $0 + $1.count }
+        version == 1
         && keyHeight.isFinite && (keyHeight == 0 || (32...60).contains(keyHeight))
         && (0...2).contains(theme)
     }
@@ -68,7 +67,7 @@ struct KeyboardSettings {
         guard let shared = UserDefaults(suiteName: appGroupIdentifier),
               !shared.bool(forKey: "layout.v1.migratedFromApp") else { return }
         let legacy = UserDefaults.standard
-        for key in ["layout.v1", "japanese", "topKeys", "theme"] {
+        for key in ["layout.v1", "japanese", "theme"] {
             if let value = legacy.object(forKey: key) { shared.set(value, forKey: key) }
         }
         shared.set(true, forKey: "layout.v1.migratedFromApp")
@@ -77,7 +76,7 @@ struct KeyboardSettings {
     static func migrateLegacyExtensionPreferences() {
         guard let shared = UserDefaults(suiteName: appGroupIdentifier) else { return }
         let legacy = UserDefaults.standard
-        for key in ["layout.v1", "japanese", "topKeys", "theme"] {
+        for key in ["layout.v1", "japanese", "theme"] {
             if shared.object(forKey: key) == nil, let value = legacy.object(forKey: key) {
                 shared.set(value, forKey: key)
             }
@@ -88,7 +87,6 @@ struct KeyboardSettings {
             if let data = defaults.data(forKey: "layout.v1"),
                let value = try? JSONDecoder().decode(LayoutSettings.self, from: data), value.isValid { return value }
             var value = LayoutSettings.defaults
-            if let keys = defaults.stringArray(forKey: "topKeys"), keys.count == 10, keys.allSatisfy({ $0.count == 1 }) { value.rows[0] = keys }
             if defaults.object(forKey: "theme") != nil { value.theme = min(2, max(0, defaults.integer(forKey: "theme"))) }
             return value
         }

@@ -8,38 +8,10 @@ struct NumberKeyApp: App {
 
 struct SettingsView: View {
     @State private var layout = KeyboardSettings().snapshot
-    @State private var selected: Slot?
     @State private var sample = ""
-    private struct Slot: Equatable { let row: Int; let column: Int }
     var body: some View {
         NavigationStack {
             Form {
-                Section("キー配置") {
-                    Text("入れ替えたい2つのキーを順にタップ")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    GeometryReader { geometry in
-                        let gap: CGFloat = 4
-                        let width = max(18, (geometry.size.width - gap * 9) / 10)
-                        VStack(spacing: 8) {
-                            ForEach(0..<4, id: \.self) { row in
-                                HStack(spacing: gap) {
-                                    ForEach(0..<layout.rows[row].count, id: \.self) { column in
-                                        let slot = Slot(row: row, column: column)
-                                        Button { select(slot) } label: {
-                                            Text(layout.rows[row][column])
-                                                .font(.system(size: 20))
-                                                .frame(width: width, height: 38)
-                                                .background(selected == slot ? Color.accentColor : Color(white: 0.38))
-                                                .foregroundStyle(.white)
-                                                .clipShape(RoundedRectangle(cornerRadius: 5))
-                                        }.buttonStyle(.plain)
-                                    }
-                                }.frame(maxWidth: .infinity)
-                            }
-                        }.padding(.vertical, 7)
-                    }.frame(height: 186)
-                    Button("標準の配置に戻す") { layout.rows = LayoutSettings.defaults.rows; selected = nil }
-                }
                 Section("表示") {
                     Picker("配色", selection: $layout.theme) {
                         Text("自動").tag(0); Text("ライト").tag(1); Text("ダーク").tag(2)
@@ -63,7 +35,7 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("キーボードへの反映") {
-                    Text("キー配置は自動保存されます。キーボードを次に開いたときに反映されます。")
+                    Text("設定は自動保存されます。キーボードを次に開いたときに反映されます。")
                     Text("入力内容は送信せず、選んだ変換候補を端末内に学習します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -93,15 +65,6 @@ struct SettingsView: View {
             .navigationTitle("NumberKey")
             .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
         }
-    }
-    private func select(_ slot: Slot) {
-        guard let previous = selected else { selected = slot; return }
-        if previous != slot {
-            let old = layout.rows[previous.row][previous.column]
-            layout.rows[previous.row][previous.column] = layout.rows[slot.row][slot.column]
-            layout.rows[slot.row][slot.column] = old
-        }
-        selected = nil
     }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),

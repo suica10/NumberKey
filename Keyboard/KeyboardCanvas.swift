@@ -46,14 +46,14 @@ final class KeyboardCanvas: UIView {
             let punctuation = [".", ",", "?", "!", "'"]
             let backslash = String(UnicodeScalar(92)!)
             let extraSymbols = ["_", backslash, "|", "~", "<", ">", "€", "£", "¥", "•"]
-            let digitRow = japanese ? settings.rows[0].map(japaneseFullWidth) : settings.rows[0]
+            let digitRow = japanese ? LayoutSettings.standardRows[0].map(japaneseFullWidth) : LayoutSettings.standardRows[0]
             let symbolRow = symbolPage == 0 ? mainSymbols : extendedSymbols
             let punctuationRow = symbolPage == 0 ? punctuation : extraSymbols
             values = [digitRow,
                       japanese ? symbolRow.map(japaneseFullWidth) : symbolRow,
                       japanese ? punctuationRow.map(japaneseFullWidth) : punctuationRow]
         } else {
-            values = settings.rows
+            values = LayoutSettings.standardRows
         }
         let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")",
                           "１":"！", "２":"＠", "３":"＃", "４":"＄", "５":"％", "６":"＾", "７":"＆", "８":"＊", "９":"（", "０":"）"]
