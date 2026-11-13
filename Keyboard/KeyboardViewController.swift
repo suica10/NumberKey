@@ -44,6 +44,17 @@ final class KeyboardViewController: UIInputViewController {
     private let captureTitle = UILabel()
     private let captureDisplay = UILabel()
     private let captureButtonRow = UIStackView()
+    private let phrasePanel = UIView()
+    private let phraseTitle = UILabel()
+    private let phraseLanguageControl = UISegmentedControl(items: ["日本語", "English"])
+    private let phraseCloseButton = UIButton(type: .system)
+    private let phraseScroll = UIScrollView()
+    private let phraseStack = UIStackView()
+    private let phraseAddButton = UIButton(type: .system)
+    private let phraseDeleteToggle = UIButton(type: .system)
+    private var isPicking = false
+    private var pickerDeleteMode = false
+    private var pickerOpenedAt: Date?
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
@@ -93,6 +104,50 @@ final class KeyboardViewController: UIInputViewController {
         captureButtonRow.addArrangedSubview(cancelButton)
         captureButtonRow.addArrangedSubview(saveButton)
         capturePanel.addSubview(captureButtonRow)
+        // 定型文パネル（スペース長押し）。言語切替・定型文リスト・追加/削除を
+        // 大きな枠の中に収める。システムメニューの小ささへの対策。
+        phrasePanel.isHidden = true
+        phrasePanel.layer.cornerRadius = 10
+        phrasePanel.layer.borderWidth = 1
+        view.addSubview(phrasePanel)
+        phraseTitle.text = "定型文"
+        phraseTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        phrasePanel.addSubview(phraseTitle)
+        phraseLanguageControl.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.setLanguage(self.phraseLanguageControl.selectedSegmentIndex == 0)
+            self.hidePhrasePicker()
+        }, for: .valueChanged)
+        phrasePanel.addSubview(phraseLanguageControl)
+        phraseCloseButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        phraseCloseButton.addAction(UIAction { [weak self] _ in self?.hidePhrasePicker() }, for: .touchUpInside)
+        phrasePanel.addSubview(phraseCloseButton)
+        phraseStack.axis = .vertical
+        phraseStack.spacing = 6
+        phraseStack.translatesAutoresizingMaskIntoConstraints = false
+        phraseScroll.addSubview(phraseStack)
+        NSLayoutConstraint.activate([
+            phraseStack.leadingAnchor.constraint(equalTo: phraseScroll.contentLayoutGuide.leadingAnchor),
+            phraseStack.trailingAnchor.constraint(equalTo: phraseScroll.contentLayoutGuide.trailingAnchor),
+            phraseStack.topAnchor.constraint(equalTo: phraseScroll.contentLayoutGuide.topAnchor),
+            phraseStack.bottomAnchor.constraint(equalTo: phraseScroll.contentLayoutGuide.bottomAnchor),
+            phraseStack.widthAnchor.constraint(equalTo: phraseScroll.frameLayoutGuide.widthAnchor)
+        ])
+        phrasePanel.addSubview(phraseScroll)
+        phraseAddButton.setTitle("＋ 定型文を追加", for: .normal)
+        phraseAddButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        phraseAddButton.contentHorizontalAlignment = .left
+        phraseAddButton.addAction(UIAction { [weak self] _ in self?.beginCapture() }, for: .touchUpInside)
+        phrasePanel.addSubview(phraseAddButton)
+        phraseDeleteToggle.setTitle("削除モード", for: .normal)
+        phraseDeleteToggle.titleLabel?.font = .systemFont(ofSize: 16)
+        phraseDeleteToggle.contentHorizontalAlignment = .right
+        phraseDeleteToggle.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.pickerDeleteMode.toggle()
+            self.rebuildPhraseRows()
+        }, for: .touchUpInside)
+        phrasePanel.addSubview(phraseDeleteToggle)
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -162,10 +217,31 @@ final class KeyboardViewController: UIInputViewController {
             captureButtonRow.frame = CGRect(x: 12, y: max(30, panelHeight - 50), width: max(0, panelWidth - 24), height: 42)
             captureDisplay.frame = CGRect(x: 12, y: 30, width: max(0, panelWidth - 24), height: max(0, panelHeight - 30 - 56))
         }
+        var phrasePanelHeight: CGFloat = 0
+        if isPicking && !isCapturing {
+            let budget = UIScreen.main.bounds.height * 0.62
+            phrasePanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
+        }
+        phrasePanel.isHidden = !isPicking
+        if isPicking && !isCapturing {
+            let isLight = traitCollection.userInterfaceStyle == .light
+            phrasePanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
+            phrasePanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            phrasePanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, phrasePanelHeight - 12))
+            let panelWidth = phrasePanel.bounds.width
+            let panelHeight = phrasePanel.bounds.height
+            phraseTitle.frame = CGRect(x: 12, y: 10, width: 70, height: 28)
+            phraseLanguageControl.frame = CGRect(x: 88, y: 8, width: 170, height: 32)
+            phraseCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
+            phraseScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
+            phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
+            phraseDeleteToggle.frame = CGRect(x: max(0, panelWidth - 172), y: max(0, panelHeight - 46), width: 160, height: 38)
+        }
+        let topHeight = capturePanelHeight + phrasePanelHeight
         candidateScroll.isHidden = candidateHeight == 0
-        candidateScroll.frame = CGRect(x: 0, y: capturePanelHeight, width: width, height: candidateHeight)
-        canvas.frame = CGRect(x: 0, y: capturePanelHeight + candidateHeight, width: width, height: keysHeight)
-        let height = capturePanelHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
+        candidateScroll.frame = CGRect(x: 0, y: topHeight, width: width, height: candidateHeight)
+        canvas.frame = CGRect(x: 0, y: topHeight + candidateHeight, width: width, height: keysHeight)
+        let height = topHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
     }
     override func textDidChange(_ textInput: UITextInput?) {
@@ -195,41 +271,71 @@ final class KeyboardViewController: UIInputViewController {
         button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right])])
     }
     private func configureSpaceMenu(_ button: UIButton) {
-        updateSpaceMenu(button)
-        button.addAction(UIAction { [weak self, weak button] _ in
-            guard let self, let button else { return }
-            self.settings = KeyboardSettings()
-            _ = self.settings.defaults.synchronize()
-            self.updateSpaceMenu(button)
-        }, for: .touchDown)
+        // システムのUIMenuは小さくて長い定型文が読めないため、長押しでは
+        // 自前の大きな定型文パネルを開く（旧updateSpaceMenuは置き換え）。
+        button.menu = nil
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPressed(_:)))
+        hold.minimumPressDuration = 0.35
+        button.addGestureRecognizer(hold)
     }
-    private func updateSpaceMenu(_ button: UIButton) {
-        let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
-        let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
+    @objc private func spaceLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, !isCapturing else { return }
+        pickerOpenedAt = Date()
+        showPhrasePicker()
+    }
+    private func showPhrasePicker() {
         phraseStore.reload()
+        pickerDeleteMode = false
+        isPicking = true
+        phraseLanguageControl.selectedSegmentIndex = isJapanese ? 0 : 1
+        rebuildPhraseRows()
+        view.setNeedsLayout()
+    }
+    private func hidePhrasePicker() {
+        guard isPicking else { return }
+        isPicking = false
+        view.setNeedsLayout()
+    }
+    private func rebuildPhraseRows() {
+        for arranged in phraseStack.arrangedSubviews {
+            phraseStack.removeArrangedSubview(arranged)
+            arranged.removeFromSuperview()
+        }
+        let isLight = traitCollection.userInterfaceStyle == .light
         let phrases = phraseStore.phrases
-        let presetActions = phrases.map { phrase in
-            UIAction(title: phrase) { [weak self] _ in self?.insertPhrase(phrase) }
+        if phrases.isEmpty {
+            let label = UILabel()
+            label.text = "定型文はまだありません"
+            label.font = .systemFont(ofSize: 15)
+            label.textColor = .secondaryLabel
+            phraseStack.addArrangedSubview(label)
         }
-        let phraseGroup: [UIMenuElement] = presetActions.isEmpty
-            ? [UIAction(title: "定型文はまだありません", attributes: .disabled) { _ in }]
-            : presetActions
-        let addAction = UIAction(title: "定型文を追加", image: UIImage(systemName: "plus"), attributes: isCapturing ? .disabled : []) { [weak self] _ in self?.beginCapture() }
-        var manageChildren: [UIMenuElement] = [addAction]
-        if !phrases.isEmpty {
-            let deleteActions = phrases.enumerated().map { index, phrase in
-                UIAction(title: phrase, image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                    self?.phraseStore.remove(at: index)
+        for (index, phrase) in phrases.enumerated() {
+            let row = UIButton(type: .system)
+            row.contentHorizontalAlignment = .left
+            row.titleLabel?.numberOfLines = 3
+            row.titleLabel?.font = .systemFont(ofSize: 18)
+            row.titleLabel?.lineBreakMode = .byTruncatingTail
+            row.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+            row.layer.cornerRadius = 8
+            row.backgroundColor = isLight ? .white : UIColor(white: 0.32, alpha: 1)
+            row.setTitle(pickerDeleteMode ? "✕ " + phrase : phrase, for: .normal)
+            row.setTitleColor(pickerDeleteMode ? .systemRed : (isLight ? .black : .white), for: .normal)
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
+            row.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                if self.pickerDeleteMode {
+                    self.phraseStore.remove(at: index)
+                    self.rebuildPhraseRows()
+                } else {
+                    self.hidePhrasePicker()
+                    self.insertPhrase(phrase)
                 }
-            }
-            manageChildren.append(UIMenu(title: "定型文を削除", image: UIImage(systemName: "trash"), children: deleteActions))
+            }, for: .touchUpInside)
+            phraseStack.addArrangedSubview(row)
         }
-        button.menu = UIMenu(children: [
-            UIMenu(options: .displayInline, children: [japanese, english]),
-            UIMenu(options: .displayInline, children: phraseGroup),
-            UIMenu(options: .displayInline, children: manageChildren)
-        ])
-        button.showsMenuAsPrimaryAction = false
+        phraseDeleteToggle.setTitle(pickerDeleteMode ? "削除モード中" : "削除モード", for: .normal)
+        phraseDeleteToggle.setTitleColor(pickerDeleteMode ? .systemRed : nil, for: .normal)
     }
     /// 旧実装（共有 LayoutSettings）から定型文を一度だけ引き継ぐための読み出し。
     private static func legacySharedPhrases() -> [String]? {
@@ -246,6 +352,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func beginCapture() {
         guard !isCapturing else { return }
+        hidePhrasePicker()
         syncHostChange(); commitCurrent()
         let document = BufferDocument()
         document.onChange = { [weak self] text in
@@ -328,7 +435,11 @@ final class KeyboardViewController: UIInputViewController {
             guard symbols else { return }
             symbolPage = symbolPage == 0 ? 1 : 0
             rebuildCanvas()
-        case .space: space()
+        case .space:
+            // 長押しで定型文パネルを開いた直後の離しタップは、スペースとして扱わない。
+            if isPicking { hidePhrasePicker() }
+            else if let opened = pickerOpenedAt, Date().timeIntervalSince(opened) < 0.6 { }
+            else { space() }
         case .enter:
             if isCapturing && composition.isEmpty { endCapture(save: true) }
             else if composition.isEmpty { editor.insert("\n") }
