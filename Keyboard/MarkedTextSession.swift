@@ -34,7 +34,10 @@ final class MarkedTextSession {
     private(set) var hasMarkedText = false
     private(set) var isUpdating = false
     init(document: @escaping () -> KeyboardDocument) { getDocument = document }
-    private func context(_ d: KeyboardDocument) -> Context { Context(before: d.before, after: d.after) }
+    private func context(_ d: KeyboardDocument) -> Context {
+        // documentContext の読みはホスト往復。回数と時間を実測対象にする。
+        PerfProbe.shared.measure("ctx") { Context(before: d.before, after: d.after) }
+    }
     /// proxy の変更後に documentContextBeforeInput / AfterInput を読み直すのは
     /// ホストアプリとの往復になるため、キーボード拡張では目に見えて高くつく。
     /// スナップショットは「マーク付きテキストが生きていて、後の hostDidChange /

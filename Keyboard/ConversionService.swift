@@ -31,7 +31,7 @@ actor ConversionService {
         warmUp()
         guard let converter else { return [] }
         learningCandidates.removeAll()
-        let results = converter.requestCandidates(composition, options: .init(
+        let results = PerfProbe.shared.measure("conv") { converter.requestCandidates(composition, options: .init(
             N_best: 4,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
@@ -43,7 +43,7 @@ actor ConversionService {
             textReplacer: .empty,
             specialCandidateProviders: [],
             metadata: .init(versionString: "NumberKey 0.3.2")
-        ))
+        )) }
         var seen = Set<String>()
         let visibleCandidates = results.mainResults.compactMap { candidate -> String? in
             guard candidate.inputable, !candidate.text.isEmpty else { return nil }

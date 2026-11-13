@@ -35,6 +35,8 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
     private var candidateKeys: [CandidateKey] = []
+    /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
+    private let perfLabel = UILabel()
     private var candidateStyleIsLight: Bool?
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
@@ -100,6 +102,14 @@ final class KeyboardViewController: UIInputViewController {
         Task.detached(priority: .utility) { [weak self] in
             let loaded = EnglishLexicon.loadBundled()
             await MainActor.run { self?.englishLexicon = loaded }
+        }
+        if PerfProbe.enabled {
+            perfLabel.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
+            perfLabel.textColor = .secondaryLabel
+            perfLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.8)
+            perfLabel.adjustsFontSizeToFitWidth = true
+            perfLabel.minimumScaleFactor = 0.7
+            view.addSubview(perfLabel)
         }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
@@ -302,6 +312,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if PerfProbe.enabled { PerfProbe.shared.reset(); perfLabel.text = nil }
         settings = KeyboardSettings()
         // 設定が変わったときだけキャンバスを組み直す。毎回組み直すと、キーボードを
         // 開くたびに全キーを再生成することになり表示が重くなる。旧設定の移行は
@@ -404,6 +415,12 @@ final class KeyboardViewController: UIInputViewController {
             emojiScroll.frame = CGRect(x: 8, y: 86, width: max(0, panelWidth - 16), height: max(0, panelHeight - 86 - 8))
         }
         let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight + emojiPanelHeight
+        if PerfProbe.enabled {
+            // パネル表示中は隠す。通常入力中だけ候補欄の上端に重ねる。
+            perfLabel.isHidden = topHeight > 0
+            if topHeight == 0 { perfLabel.frame = CGRect(x: 4, y: 0, width: max(0, width - 8), height: 12) }
+            view.bringSubviewToFront(perfLabel)
+        }
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight, width: width, height: candidateHeight)
         canvas.frame = CGRect(x: 0, y: topHeight + candidateHeight, width: width, height: keysHeight)
@@ -865,6 +882,7 @@ final class KeyboardViewController: UIInputViewController {
         if !isJapanese, composition.isEmpty { renderState() }
     }
     private func scheduleConversion() {
+        let inputStamp = PerfProbe.stamp()
         revision += 1
         let requestRevision = revision, snapshot = composition
         conversionReady = false; waitingSpaceCount = 0; selected = nil
@@ -874,6 +892,7 @@ final class KeyboardViewController: UIInputViewController {
         else if candidates.isEmpty { candidates = insertPackExtras(insertEnglishExtras(baseCandidates(), raw: rawRomaji(of: snapshot)), kana: snapshot.convertTarget) }
         conversionTask?.cancel()
         renderState()
+        PerfProbe.shared.record("input", since: inputStamp)
         guard !snapshot.isEmpty else { return }
         let service = service
         conversionTask = Task { [weak self] in
@@ -883,7 +902,9 @@ final class KeyboardViewController: UIInputViewController {
             do { try await Task.sleep(nanoseconds: 4_000_000) } catch { return }
             guard !Task.isCancelled else { return }
             // 世代遅れでスキップされたら nil。状態は新しいタスクが持つので触らない。
+            let awaitStamp = PerfProbe.stamp()
             guard let result = await service.candidates(for: snapshot, generation: requestRevision) else { return }
+            PerfProbe.shared.record("await", since: awaitStamp)
             guard !Task.isCancelled, let self, self.revision == requestRevision else { return }
             // ここで syncHostChange() はしない。変換中にホスト側で編集があれば
             // textDidChange / selectionDidChange 側のチェックで composition が
@@ -901,6 +922,7 @@ final class KeyboardViewController: UIInputViewController {
             self.waitingSpaceCount = 0
             // 候補が前回と同一なら候補欄の再描画は不要（体感の遅さ対策）。
             if candidatesChanged || hadWaitingSpace { self.renderState() }
+            self.updatePerfOverlay()
         }
     }
     /// composition の生のローマ字入力を復元する（英字候補の判定用）。
@@ -951,11 +973,12 @@ final class KeyboardViewController: UIInputViewController {
         if updateMarked {
             let display = selected.flatMap { candidates.indices.contains($0) ? candidates[$0] : nil } ?? composition.convertTarget
             let caret = selected == nil ? String(display.prefix(composition.convertTargetCursorPosition)).utf16.count : display.utf16.count
-            editor.show(display, caret: caret)
+            PerfProbe.shared.measure("show") { editor.show(display, caret: caret) }
         }
         canvas.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !showsCandidateStrip
         if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
+        let stripStamp = PerfProbe.stamp()
         let stripCount = isJapanese ? candidates.count : englishSuggestions.count
         while candidateKeys.count > stripCount {
             let key = candidateKeys.removeLast()
@@ -1019,6 +1042,7 @@ final class KeyboardViewController: UIInputViewController {
                 key.actionRevision = displayedRevision
             }
         }
+        PerfProbe.shared.record("strip", since: stripStamp)
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
         // （選択ハイライトだけの変化では戻さない。）
         let stripValues = isJapanese ? candidates : englishSuggestions
@@ -1029,6 +1053,12 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
     }
+    /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
+    private func updatePerfOverlay() {
+        guard PerfProbe.enabled else { return }
+        perfLabel.text = PerfProbe.shared.summary()
+    }
+
     // MARK: - 英語の補完・自動修正
 
     /// カーソル直前の英単語（英字と内部アポストロフィの連続）。
