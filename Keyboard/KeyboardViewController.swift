@@ -685,7 +685,7 @@ final class KeyboardViewController: UIInputViewController {
                     key.accessibilityIdentifier = "candidate." + value
                     key.renderedValue = value
                 }
-                if key.isSelectedCandidate {
+                if key.isSelectedCandidate == true {
                     key.backgroundColor = .clear
                     key.isSelectedCandidate = false
                 }
