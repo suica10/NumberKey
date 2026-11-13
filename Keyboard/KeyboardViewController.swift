@@ -68,6 +68,18 @@ final class KeyboardViewController: UIInputViewController {
     private let clipboardTitle = UILabel()
     private let clipboardCloseButton = UIButton(type: .system)
     private let clipboardScroll = UIScrollView()
+    private let emojiPanel = UIView()
+    private let emojiTitle = UILabel()
+    private let emojiCloseButton = UIButton(type: .system)
+    private let emojiCategoryScroll = UIScrollView()
+    private let emojiCategoryStack = UIStackView()
+    private let emojiScroll = UIScrollView()
+    private let emojiStack = UIStackView()
+    private var isEmojiPicking = false
+    private var emojiCategories: [EmojiCatalog.Category] = []
+    private var emojiCategoryIndex = 0
+    private var emojiCategoryButtons: [UIButton] = []
+    private let recentEmojiStore = RecentEmojiStore()
     private let clipboardStack = UIStackView()
     private let clipboardClearButton = UIButton(type: .system)
     private var isClipboardPicking = false
@@ -197,6 +209,41 @@ final class KeyboardViewController: UIInputViewController {
             self?.rebuildClipboardRows()
         }, for: .touchUpInside)
         clipboardPanel.addSubview(clipboardClearButton)
+        // 絵文字パネル（地球儀キーの長押しメニュー）。他のパネルと同じ作り。
+        emojiPanel.isHidden = true
+        emojiPanel.layer.cornerRadius = 10
+        emojiPanel.layer.borderWidth = 1
+        view.addSubview(emojiPanel)
+        emojiTitle.text = "絵文字"
+        emojiTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        emojiPanel.addSubview(emojiTitle)
+        emojiCloseButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        emojiCloseButton.addAction(UIAction { [weak self] _ in self?.hideEmojiPanel() }, for: .touchUpInside)
+        emojiPanel.addSubview(emojiCloseButton)
+        emojiCategoryStack.axis = .horizontal
+        emojiCategoryStack.spacing = 4
+        emojiCategoryStack.translatesAutoresizingMaskIntoConstraints = false
+        emojiCategoryScroll.addSubview(emojiCategoryStack)
+        NSLayoutConstraint.activate([
+            emojiCategoryStack.leadingAnchor.constraint(equalTo: emojiCategoryScroll.contentLayoutGuide.leadingAnchor),
+            emojiCategoryStack.trailingAnchor.constraint(equalTo: emojiCategoryScroll.contentLayoutGuide.trailingAnchor),
+            emojiCategoryStack.topAnchor.constraint(equalTo: emojiCategoryScroll.contentLayoutGuide.topAnchor),
+            emojiCategoryStack.bottomAnchor.constraint(equalTo: emojiCategoryScroll.contentLayoutGuide.bottomAnchor),
+            emojiCategoryStack.heightAnchor.constraint(equalTo: emojiCategoryScroll.frameLayoutGuide.heightAnchor)
+        ])
+        emojiPanel.addSubview(emojiCategoryScroll)
+        emojiStack.axis = .vertical
+        emojiStack.spacing = 2
+        emojiStack.translatesAutoresizingMaskIntoConstraints = false
+        emojiScroll.addSubview(emojiStack)
+        NSLayoutConstraint.activate([
+            emojiStack.leadingAnchor.constraint(equalTo: emojiScroll.contentLayoutGuide.leadingAnchor),
+            emojiStack.trailingAnchor.constraint(equalTo: emojiScroll.contentLayoutGuide.trailingAnchor),
+            emojiStack.topAnchor.constraint(equalTo: emojiScroll.contentLayoutGuide.topAnchor),
+            emojiStack.bottomAnchor.constraint(equalTo: emojiScroll.contentLayoutGuide.bottomAnchor),
+            emojiStack.widthAnchor.constraint(equalTo: emojiScroll.frameLayoutGuide.widthAnchor)
+        ])
+        emojiPanel.addSubview(emojiScroll)
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -213,6 +260,9 @@ final class KeyboardViewController: UIInputViewController {
                 self.setLanguage(!self.isJapanese)
             }, for: .touchUpInside)
             button.menu = UIMenu(children: [
+                UIAction(title: "絵文字", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
+                    self?.showEmojiPanel()
+                },
                 UIAction(title: "次のキーボードへ", image: UIImage(systemName: "keyboard")) { [weak self] _ in
                     self?.advanceToNextInputMode()
                 }
@@ -303,7 +353,25 @@ final class KeyboardViewController: UIInputViewController {
             clipboardScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             clipboardClearButton.frame = CGRect(x: max(0, panelWidth - 112), y: max(0, panelHeight - 46), width: 100, height: 38)
         }
-        let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight
+        var emojiPanelHeight: CGFloat = 0
+        if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
+            let budget = UIScreen.main.bounds.height * 0.62
+            emojiPanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
+        }
+        emojiPanel.isHidden = !isEmojiPicking
+        if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
+            let isLight = traitCollection.userInterfaceStyle == .light
+            emojiPanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
+            emojiPanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            emojiPanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, emojiPanelHeight - 12))
+            let panelWidth = emojiPanel.bounds.width
+            let panelHeight = emojiPanel.bounds.height
+            emojiTitle.frame = CGRect(x: 12, y: 10, width: 200, height: 28)
+            emojiCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
+            emojiCategoryScroll.frame = CGRect(x: 8, y: 44, width: max(0, panelWidth - 16), height: 36)
+            emojiScroll.frame = CGRect(x: 8, y: 86, width: max(0, panelWidth - 16), height: max(0, panelHeight - 86 - 8))
+        }
+        let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight + emojiPanelHeight
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight, width: width, height: candidateHeight)
         canvas.frame = CGRect(x: 0, y: topHeight + candidateHeight, width: width, height: keysHeight)
@@ -388,6 +456,79 @@ final class KeyboardViewController: UIInputViewController {
         guard isClipboardPicking else { return }
         isClipboardPicking = false
         view.setNeedsLayout()
+    }
+    private func showEmojiPanel() {
+        guard !isCapturing else { return }
+        hidePhrasePicker()
+        hideClipboardPanel()
+        if emojiCategories.isEmpty { emojiCategories = EmojiCatalog.loadBundled() }
+        if recentEmojiStore.items.isEmpty { emojiCategoryIndex = 1 }
+        isEmojiPicking = true
+        rebuildEmojiCategories()
+        rebuildEmojiGrid()
+        view.setNeedsLayout()
+    }
+    private func hideEmojiPanel() {
+        guard isEmojiPicking else { return }
+        isEmojiPicking = false
+        view.setNeedsLayout()
+    }
+    private func rebuildEmojiCategories() {
+        emojiCategoryButtons.forEach { $0.removeFromSuperview() }
+        emojiCategoryButtons = []
+        for (index, name) in (["最近"] + emojiCategories.map { $0.name }).enumerated() {
+            let button = UIButton(type: .system)
+            button.setTitle(name, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 14, weight: index == emojiCategoryIndex ? .bold : .regular)
+            button.contentEdgeInsets = .init(top: 4, left: 10, bottom: 4, right: 10)
+            button.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.emojiCategoryIndex = index
+                self.rebuildEmojiCategories()
+                self.rebuildEmojiGrid()
+            }, for: .touchUpInside)
+            emojiCategoryStack.addArrangedSubview(button)
+            emojiCategoryButtons.append(button)
+        }
+    }
+    private func rebuildEmojiGrid() {
+        emojiStack.arrangedSubviews.forEach { emojiStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        let emojis = emojiCategoryIndex == 0 ? recentEmojiStore.items
+            : (emojiCategories.indices.contains(emojiCategoryIndex - 1) ? emojiCategories[emojiCategoryIndex - 1].emojis : [])
+        if emojis.isEmpty {
+            let label = UILabel()
+            label.text = emojiCategoryIndex == 0 ? "まだ絵文字を使っていません" : "絵文字がありません"
+            label.font = .systemFont(ofSize: 14)
+            label.textColor = .secondaryLabel
+            emojiStack.addArrangedSubview(label)
+            return
+        }
+        let columns = 8
+        for start in stride(from: 0, to: emojis.count, by: columns) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 2
+            let slice = emojis[start..<min(start + columns, emojis.count)]
+            for emoji in slice {
+                let button = UIButton(type: .system)
+                button.setTitle(emoji, for: .normal)
+                button.titleLabel?.font = .systemFont(ofSize: 30)
+                button.heightAnchor.constraint(equalToConstant: 46).isActive = true
+                button.addAction(UIAction { [weak self] _ in self?.insertEmoji(emoji) }, for: .touchUpInside)
+                row.addArrangedSubview(button)
+            }
+            for _ in slice.count..<columns { row.addArrangedSubview(UIView()) }
+            emojiStack.addArrangedSubview(row)
+        }
+        emojiScroll.setContentOffset(.zero, animated: false)
+    }
+    private func insertEmoji(_ emoji: String) {
+        syncHostChange()
+        commitCurrent()
+        editor.insert(emoji)
+        recentEmojiStore.record(emoji)
+        pendingAutocorrectUndo = nil
     }
     private func rebuildClipboardRows() {
         for arranged in clipboardStack.arrangedSubviews {
