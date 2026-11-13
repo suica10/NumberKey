@@ -6,6 +6,13 @@ name: Prototype typo-correction candidates
 # the offline scorer in Prototype/lm/typo_eval.py.
 on:
   workflow_dispatch:
+  # workflow_dispatch requires the file on the default branch; until it
+  # lands there, a push that touches this file on the prototype branch is
+  # the trigger (path filter keeps ordinary prototype commits from
+  # re-running the ~19k-conversion dump).
+  push:
+    branches: [claude/neural-rerank-prototype]
+    paths: ['.github/workflows/prototype-typo.yml']
 
 permissions:
   contents: read
