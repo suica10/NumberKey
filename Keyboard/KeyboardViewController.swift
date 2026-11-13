@@ -80,6 +80,7 @@ final class KeyboardViewController: UIInputViewController {
     private var emojiCategoryIndex = 0
     private var emojiCategoryButtons: [UIButton] = []
     private let recentEmojiStore = RecentEmojiStore()
+    private var emojiPanelOpenedAt: Date?
     private let clipboardStack = UIStackView()
     private let clipboardClearButton = UIButton(type: .system)
     private var isClipboardPicking = false
@@ -263,17 +264,18 @@ final class KeyboardViewController: UIInputViewController {
             guard let self else { return }
             button.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
+                // 長押しで絵文字パネルが開いた直後のタップは言語切替にしない。
+                if let openedAt = self.emojiPanelOpenedAt, Date().timeIntervalSince(openedAt) < 0.6 { return }
                 self.setLanguage(!self.isJapanese)
             }, for: .touchUpInside)
-            button.menu = UIMenu(children: [
-                UIAction(title: "絵文字", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
-                    self?.showEmojiPanel()
-                },
-                UIAction(title: "次のキーボードへ", image: UIImage(systemName: "keyboard")) { [weak self] _ in
-                    self?.advanceToNextInputMode()
-                }
-            ])
-            button.showsMenuAsPrimaryAction = false
+            // 地球儀の長押しはメニュー経由でなく直接絵文字パネルを開く。
+            // 「次のキーボード」は One Keyboard のコンセプトとして持たない。
+            if button.gestureRecognizers?.contains(where: { $0.name == "emojiPanel" }) != true {
+                let hold = UILongPressGestureRecognizer(target: self, action: #selector(globeLongPressed(_:)))
+                hold.minimumPressDuration = 0.35
+                hold.name = "emojiPanel"
+                button.addGestureRecognizer(hold)
+            }
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
@@ -422,6 +424,11 @@ final class KeyboardViewController: UIInputViewController {
         guard gesture.state == .began, !isCapturing else { return }
         pickerOpenedAt = Date()
         showPhrasePicker()
+    }
+    @objc private func globeLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, !isCapturing else { return }
+        emojiPanelOpenedAt = Date()
+        showEmojiPanel()
     }
     private func showPhrasePicker() {
         hideClipboardPanel()
