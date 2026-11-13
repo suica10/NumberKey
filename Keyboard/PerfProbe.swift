@@ -16,8 +16,13 @@ final class PerfProbe: @unchecked Sendable {
     static func stamp() -> Double { ProcessInfo.processInfo.systemUptime }
 
     func record(_ name: String, since stamp: Double) {
+        recordElapsed(name, ms: (ProcessInfo.processInfo.systemUptime - stamp) * 1000)
+    }
+
+    /// 経過ミリ秒を直接記録する。別モジュール (SwiftPM の KeyboardConversion)
+    /// から計測を引き渡すために使う — PerfProbe 本体は拡張モジュールにだけ置く。
+    func recordElapsed(_ name: String, ms: Double) {
         guard Self.enabled else { return }
-        let ms = (ProcessInfo.processInfo.systemUptime - stamp) * 1000
         lock.lock()
         var stat = stats[name] ?? Stat()
         if stats[name] == nil { order.append(name) }

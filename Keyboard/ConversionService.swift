@@ -3,6 +3,10 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 
 /// The converter and its caches are confined to one actor; no text is sent off-device.
 actor ConversionService {
+    /// 変換時間の計測フック (名前, 経過ミリ秒)。PerfProbe は拡張モジュール側に
+    /// あるため、このファイル単体でビルドされる SwiftPM 検証ターゲットからは
+    /// 直接参照できない。アプリ側が起動時に sink を差し込む (未設定なら無計測)。
+    static var perfSink: ((String, Double) -> Void)?
     private var converter: KanaKanjiConverter?
     private var learningCandidates: [String: Candidate] = [:]
     /// 最後に受け付けた変換リクエストの世代。actor は直列実行なので、古い
@@ -31,7 +35,8 @@ actor ConversionService {
         warmUp()
         guard let converter else { return [] }
         learningCandidates.removeAll()
-        let results = PerfProbe.shared.measure("conv") { converter.requestCandidates(composition, options: .init(
+        let convStart = ProcessInfo.processInfo.systemUptime
+        let results = converter.requestCandidates(composition, options: .init(
             N_best: 4,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
@@ -43,7 +48,8 @@ actor ConversionService {
             textReplacer: .empty,
             specialCandidateProviders: [],
             metadata: .init(versionString: "NumberKey 0.3.2")
-        )) }
+        ))
+        Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
         var seen = Set<String>()
         let visibleCandidates = results.mainResults.compactMap { candidate -> String? in
             guard candidate.inputable, !candidate.text.isEmpty else { return nil }

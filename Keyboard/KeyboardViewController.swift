@@ -95,6 +95,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
+        ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
         // 英単語リスト（約1MB）の読み込みは起動処理を止めないよう非同期で行う。
         // 起動が重いとアップデート直後の初回表示で iOS に見限られ、代わりに
