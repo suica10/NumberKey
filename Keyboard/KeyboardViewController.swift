@@ -68,6 +68,7 @@ final class KeyboardViewController: UIInputViewController {
         captureStack.alignment = .center
         captureStack.translatesAutoresizingMaskIntoConstraints = false
         captureLabel.font = .systemFont(ofSize: 17)
+        captureLabel.numberOfLines = 2
         captureLabel.lineBreakMode = .byTruncatingHead
         captureLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let saveButton = UIButton(type: .system)
@@ -136,7 +137,7 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
         guard width > 0 else { return }
-        let captureHeight: CGFloat = isCapturing ? 34 : 0
+        let captureHeight: CGFloat = isCapturing ? 58 : 0
         let candidateHeight: CGFloat = isJapanese && !composition.isEmpty ? 34 : 0
         captureBar.isHidden = !isCapturing
         captureBar.frame = CGRect(x: 0, y: 0, width: width, height: captureHeight)
