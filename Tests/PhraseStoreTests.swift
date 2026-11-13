@@ -81,6 +81,26 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.phrases, ["a", "b", "c"])
     }
 
+    func testClipboardHistoryRecordDedupesAndCaps() {
+        let store = ClipboardHistoryStore(defaults: defaults)
+        store.clear()
+        store.record("one")
+        store.record("two")
+        store.record("one")
+        XCTAssertEqual(store.items, ["one", "two"])
+        store.record("   ")
+        XCTAssertEqual(store.items.count, 2)
+        store.record(String(repeating: "x", count: ClipboardHistoryStore.maxLength + 1))
+        XCTAssertEqual(store.items.count, 2)
+        for i in 0..<40 { store.record("item\(i)") }
+        XCTAssertEqual(store.items.count, ClipboardHistoryStore.maxItems)
+        XCTAssertEqual(store.items.first, "item39")
+        store.remove(at: 0)
+        XCTAssertEqual(store.items.first, "item38")
+        let reloaded = ClipboardHistoryStore(defaults: defaults)
+        XCTAssertEqual(reloaded.items, store.items)
+    }
+
     func testTextBufferMarkedFlow() {
         var buffer = TextBuffer()
         buffer.setMarked("にほんご")

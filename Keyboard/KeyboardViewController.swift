@@ -38,6 +38,7 @@ final class KeyboardViewController: UIInputViewController {
     private var candidateStyleIsLight: Bool?
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
+    private let clipboardStore = ClipboardHistoryStore()
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
     private let capturePanel = UIView()
@@ -55,6 +56,14 @@ final class KeyboardViewController: UIInputViewController {
     private var pickerReorderMode = false
     private weak var openPhraseRow: PhraseRowView?
     private var pickerOpenedAt: Date?
+    private let clipboardPanel = UIView()
+    private let clipboardTitle = UILabel()
+    private let clipboardCloseButton = UIButton(type: .system)
+    private let clipboardScroll = UIScrollView()
+    private let clipboardStack = UIStackView()
+    private let clipboardClearButton = UIButton(type: .system)
+    private var isClipboardPicking = false
+    private weak var openClipboardRow: PhraseRowView?
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
@@ -142,6 +151,38 @@ final class KeyboardViewController: UIInputViewController {
             self.rebuildPhraseRows()
         }, for: .touchUpInside)
         phrasePanel.addSubview(phraseReorderToggle)
+        // クリップボード履歴パネル（リターン長押し）。定型文パネルと同じ作り。
+        clipboardPanel.isHidden = true
+        clipboardPanel.layer.cornerRadius = 10
+        clipboardPanel.layer.borderWidth = 1
+        view.addSubview(clipboardPanel)
+        clipboardTitle.text = "クリップボード"
+        clipboardTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        clipboardPanel.addSubview(clipboardTitle)
+        clipboardCloseButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        clipboardCloseButton.addAction(UIAction { [weak self] _ in self?.hideClipboardPanel() }, for: .touchUpInside)
+        clipboardPanel.addSubview(clipboardCloseButton)
+        clipboardStack.axis = .vertical
+        clipboardStack.spacing = 6
+        clipboardStack.translatesAutoresizingMaskIntoConstraints = false
+        clipboardScroll.addSubview(clipboardStack)
+        NSLayoutConstraint.activate([
+            clipboardStack.leadingAnchor.constraint(equalTo: clipboardScroll.contentLayoutGuide.leadingAnchor),
+            clipboardStack.trailingAnchor.constraint(equalTo: clipboardScroll.contentLayoutGuide.trailingAnchor),
+            clipboardStack.topAnchor.constraint(equalTo: clipboardScroll.contentLayoutGuide.topAnchor),
+            clipboardStack.bottomAnchor.constraint(equalTo: clipboardScroll.contentLayoutGuide.bottomAnchor),
+            clipboardStack.widthAnchor.constraint(equalTo: clipboardScroll.frameLayoutGuide.widthAnchor)
+        ])
+        clipboardPanel.addSubview(clipboardScroll)
+        clipboardClearButton.setTitle("全削除", for: .normal)
+        clipboardClearButton.titleLabel?.font = .systemFont(ofSize: 16)
+        clipboardClearButton.setTitleColor(.systemRed, for: .normal)
+        clipboardClearButton.contentHorizontalAlignment = .right
+        clipboardClearButton.addAction(UIAction { [weak self] _ in
+            self?.clipboardStore.clear()
+            self?.rebuildClipboardRows()
+        }, for: .touchUpInside)
+        clipboardPanel.addSubview(clipboardClearButton)
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -230,7 +271,25 @@ final class KeyboardViewController: UIInputViewController {
             phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
             phraseReorderToggle.frame = CGRect(x: max(0, panelWidth - 142), y: max(0, panelHeight - 46), width: 130, height: 38)
         }
-        let topHeight = capturePanelHeight + phrasePanelHeight
+        var clipboardPanelHeight: CGFloat = 0
+        if isClipboardPicking && !isCapturing && !isPicking {
+            let budget = UIScreen.main.bounds.height * 0.62
+            clipboardPanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
+        }
+        clipboardPanel.isHidden = !isClipboardPicking
+        if isClipboardPicking && !isCapturing && !isPicking {
+            let isLight = traitCollection.userInterfaceStyle == .light
+            clipboardPanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
+            clipboardPanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            clipboardPanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, clipboardPanelHeight - 12))
+            let panelWidth = clipboardPanel.bounds.width
+            let panelHeight = clipboardPanel.bounds.height
+            clipboardTitle.frame = CGRect(x: 12, y: 10, width: 200, height: 28)
+            clipboardCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
+            clipboardScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
+            clipboardClearButton.frame = CGRect(x: max(0, panelWidth - 112), y: max(0, panelHeight - 46), width: 100, height: 38)
+        }
+        let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight, width: width, height: candidateHeight)
         canvas.frame = CGRect(x: 0, y: topHeight + candidateHeight, width: width, height: keysHeight)
@@ -277,6 +336,7 @@ final class KeyboardViewController: UIInputViewController {
         showPhrasePicker()
     }
     private func showPhrasePicker() {
+        hideClipboardPanel()
         phraseStore.reload()
         pickerReorderMode = false
         isPicking = true
@@ -287,6 +347,79 @@ final class KeyboardViewController: UIInputViewController {
         guard isPicking else { return }
         isPicking = false
         view.setNeedsLayout()
+    }
+    private static let clipboardChangeCountKey = "clipboard.lastChangeCount"
+    /// クリップボードに新しい文字列があれば履歴の先頭に取り込む。
+    /// changeCount が変わったときだけ中身を読む（無駄な読み取りをしない）。
+    private func captureClipboard() {
+        guard hasFullAccess else { return }
+        let pasteboard = UIPasteboard.general
+        let last = UserDefaults.standard.integer(forKey: Self.clipboardChangeCountKey)
+        guard pasteboard.changeCount != last else { return }
+        UserDefaults.standard.set(pasteboard.changeCount, forKey: Self.clipboardChangeCountKey)
+        if let text = pasteboard.string { clipboardStore.record(text) }
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        captureClipboard()
+    }
+    private func showClipboardPanel() {
+        captureClipboard()
+        hidePhrasePicker()
+        isClipboardPicking = true
+        rebuildClipboardRows()
+        view.setNeedsLayout()
+    }
+    private func hideClipboardPanel() {
+        guard isClipboardPicking else { return }
+        isClipboardPicking = false
+        view.setNeedsLayout()
+    }
+    private func rebuildClipboardRows() {
+        for arranged in clipboardStack.arrangedSubviews {
+            clipboardStack.removeArrangedSubview(arranged)
+            arranged.removeFromSuperview()
+        }
+        openClipboardRow = nil
+        let isLight = traitCollection.userInterfaceStyle == .light
+        func noteRow(_ text: String) {
+            let label = UILabel()
+            label.text = text
+            label.font = .systemFont(ofSize: 15)
+            label.textColor = .secondaryLabel
+            label.numberOfLines = 0
+            clipboardStack.addArrangedSubview(label)
+        }
+        guard hasFullAccess else {
+            noteRow("フルアクセスが必要です。設定 → 一般 → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。")
+            return
+        }
+        clipboardStore.reload()
+        let items = clipboardStore.items
+        if items.isEmpty { noteRow("履歴はまだありません") }
+        for (index, item) in items.enumerated() {
+            let row = PhraseRowView(phrase: item, isLight: isLight, reorderMode: false, isFirst: false, isLast: false)
+            row.onTap = { [weak self] in
+                guard let self else { return }
+                self.hideClipboardPanel()
+                self.syncHostChange()
+                self.commitCurrent()
+                self.editor.insert(item)
+            }
+            row.onDelete = { [weak self] in
+                self?.clipboardStore.remove(at: index)
+                self?.rebuildClipboardRows()
+            }
+            row.onSwipeStart = { [weak self, weak row] in
+                guard let self, let row else { return }
+                if self.openClipboardRow !== row {
+                    self.openClipboardRow?.setOpen(false, animated: true)
+                }
+                self.openClipboardRow = row
+            }
+            clipboardScroll.panGestureRecognizer.require(toFail: row.panRecognizer)
+            clipboardStack.addArrangedSubview(row)
+        }
     }
     private func rebuildPhraseRows() {
         for arranged in phraseStack.arrangedSubviews {
@@ -354,6 +487,7 @@ final class KeyboardViewController: UIInputViewController {
     private func beginCapture() {
         guard !isCapturing else { return }
         hidePhrasePicker()
+        hideClipboardPanel()
         syncHostChange(); commitCurrent()
         let document = BufferDocument()
         document.onChange = { [weak self] text in
@@ -445,24 +579,8 @@ final class KeyboardViewController: UIInputViewController {
             if isCapturing && composition.isEmpty { endCapture(save: true) }
             else if composition.isEmpty { editor.insert("\n") }
             else { commitCurrent() }
-        case .paste: pasteFromClipboard()
+        case .paste: showClipboardPanel()
         }
-    }
-    private func pasteFromClipboard() {
-        syncHostChange()
-        guard hasFullAccess else {
-            let alert = UIAlertController(
-                title: "ペーストにはフルアクセスが必要です",
-                message: "設定 → 一般 → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。",
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-            return
-        }
-        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
-        commitCurrent()
-        editor.insert(text)
     }
     private func insert(_ text: String) {
         syncHostChange()
