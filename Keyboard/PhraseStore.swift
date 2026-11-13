@@ -137,6 +137,15 @@ final class PhraseStore {
         persist()
     }
 
+    func move(from source: Int, to destination: Int) {
+        guard book.phrases.indices.contains(source),
+              book.phrases.indices.contains(destination),
+              source != destination else { return }
+        let item = book.phrases.remove(at: source)
+        book.phrases.insert(item, at: destination)
+        persist()
+    }
+
     private func persist() {
         book = book.sanitized
         if let data = try? JSONEncoder().encode(book) {

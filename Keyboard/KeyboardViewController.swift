@@ -50,9 +50,10 @@ final class KeyboardViewController: UIInputViewController {
     private let phraseScroll = UIScrollView()
     private let phraseStack = UIStackView()
     private let phraseAddButton = UIButton(type: .system)
-    private let phraseDeleteToggle = UIButton(type: .system)
+    private let phraseReorderToggle = UIButton(type: .system)
     private var isPicking = false
-    private var pickerDeleteMode = false
+    private var pickerReorderMode = false
+    private weak var openPhraseRow: PhraseRowView?
     private var pickerOpenedAt: Date?
     private var isJapanese: Bool { settings.japanese }
 
@@ -132,15 +133,15 @@ final class KeyboardViewController: UIInputViewController {
         phraseAddButton.contentHorizontalAlignment = .left
         phraseAddButton.addAction(UIAction { [weak self] _ in self?.beginCapture() }, for: .touchUpInside)
         phrasePanel.addSubview(phraseAddButton)
-        phraseDeleteToggle.setTitle("削除モード", for: .normal)
-        phraseDeleteToggle.titleLabel?.font = .systemFont(ofSize: 16)
-        phraseDeleteToggle.contentHorizontalAlignment = .right
-        phraseDeleteToggle.addAction(UIAction { [weak self] _ in
+        phraseReorderToggle.setTitle("並び替え", for: .normal)
+        phraseReorderToggle.titleLabel?.font = .systemFont(ofSize: 16)
+        phraseReorderToggle.contentHorizontalAlignment = .right
+        phraseReorderToggle.addAction(UIAction { [weak self] _ in
             guard let self else { return }
-            self.pickerDeleteMode.toggle()
+            self.pickerReorderMode.toggle()
             self.rebuildPhraseRows()
         }, for: .touchUpInside)
-        phrasePanel.addSubview(phraseDeleteToggle)
+        phrasePanel.addSubview(phraseReorderToggle)
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -227,7 +228,7 @@ final class KeyboardViewController: UIInputViewController {
             phraseCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
             phraseScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
-            phraseDeleteToggle.frame = CGRect(x: max(0, panelWidth - 172), y: max(0, panelHeight - 46), width: 160, height: 38)
+            phraseReorderToggle.frame = CGRect(x: max(0, panelWidth - 142), y: max(0, panelHeight - 46), width: 130, height: 38)
         }
         let topHeight = capturePanelHeight + phrasePanelHeight
         candidateScroll.isHidden = candidateHeight == 0
@@ -277,7 +278,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func showPhrasePicker() {
         phraseStore.reload()
-        pickerDeleteMode = false
+        pickerReorderMode = false
         isPicking = true
         rebuildPhraseRows()
         view.setNeedsLayout()
@@ -292,6 +293,7 @@ final class KeyboardViewController: UIInputViewController {
             phraseStack.removeArrangedSubview(arranged)
             arranged.removeFromSuperview()
         }
+        openPhraseRow = nil
         let isLight = traitCollection.userInterfaceStyle == .light
         let phrases = phraseStore.phrases
         if phrases.isEmpty {
@@ -302,31 +304,39 @@ final class KeyboardViewController: UIInputViewController {
             phraseStack.addArrangedSubview(label)
         }
         for (index, phrase) in phrases.enumerated() {
-            let row = UIButton(type: .system)
-            row.contentHorizontalAlignment = .left
-            row.titleLabel?.numberOfLines = 3
-            row.titleLabel?.font = .systemFont(ofSize: 18)
-            row.titleLabel?.lineBreakMode = .byTruncatingTail
-            row.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
-            row.layer.cornerRadius = 8
-            row.backgroundColor = isLight ? .white : UIColor(white: 0.32, alpha: 1)
-            row.setTitle(pickerDeleteMode ? "✕ " + phrase : phrase, for: .normal)
-            row.setTitleColor(pickerDeleteMode ? .systemRed : (isLight ? .black : .white), for: .normal)
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
-            row.addAction(UIAction { [weak self] _ in
-                guard let self else { return }
-                if self.pickerDeleteMode {
-                    self.phraseStore.remove(at: index)
-                    self.rebuildPhraseRows()
-                } else {
-                    self.hidePhrasePicker()
-                    self.insertPhrase(phrase)
+            let row = PhraseRowView(phrase: phrase, isLight: isLight, reorderMode: pickerReorderMode,
+                                    isFirst: index == 0, isLast: index == phrases.count - 1)
+            row.onTap = { [weak self] in
+                guard let self, !self.pickerReorderMode else { return }
+                self.hidePhrasePicker()
+                self.insertPhrase(phrase)
+            }
+            row.onDelete = { [weak self] in
+                self?.phraseStore.remove(at: index)
+                self?.rebuildPhraseRows()
+            }
+            row.onMoveUp = { [weak self] in
+                self?.phraseStore.move(from: index, to: index - 1)
+                self?.rebuildPhraseRows()
+            }
+            row.onMoveDown = { [weak self] in
+                self?.phraseStore.move(from: index, to: index + 1)
+                self?.rebuildPhraseRows()
+            }
+            row.onSwipeStart = { [weak self, weak row] in
+                guard let self, let row else { return }
+                if self.openPhraseRow !== row {
+                    self.openPhraseRow?.setOpen(false, animated: true)
                 }
-            }, for: .touchUpInside)
+                self.openPhraseRow = row
+            }
+            if !pickerReorderMode {
+                phraseScroll.panGestureRecognizer.require(toFail: row.panRecognizer)
+            }
             phraseStack.addArrangedSubview(row)
         }
-        phraseDeleteToggle.setTitle(pickerDeleteMode ? "削除モード中" : "削除モード", for: .normal)
-        phraseDeleteToggle.setTitleColor(pickerDeleteMode ? .systemRed : nil, for: .normal)
+        phraseReorderToggle.setTitle(pickerReorderMode ? "並び替え中" : "並び替え", for: .normal)
+        phraseReorderToggle.setTitleColor(pickerReorderMode ? .systemBlue : nil, for: .normal)
     }
     /// 旧実装（共有 LayoutSettings）から定型文を一度だけ引き継ぐための読み出し。
     private static func legacySharedPhrases() -> [String]? {
@@ -612,4 +622,132 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
     private func stopDelete() { deleteTimer?.invalidate(); deleteTimer = nil }
+}
+
+/// 定型文パネルの1行。カードを左へスワイプすると右端に「削除」が出る
+/// （iOS標準のスワイプ削除と同じ作法）。並び替えモードではスワイプを止め、
+/// 右端に ↑ ↓ ボタンを出す。
+private final class PhraseRowView: UIView {
+    var onTap: (() -> Void)?
+    var onDelete: (() -> Void)?
+    var onMoveUp: (() -> Void)?
+    var onMoveDown: (() -> Void)?
+    var onSwipeStart: (() -> Void)?
+
+    let panRecognizer = UIPanGestureRecognizer()
+    private let card = UIButton(type: .system)
+    private let deleteButton = UIButton(type: .system)
+    private var panBase: CGFloat = 0
+    private(set) var isOpen = false
+    private static let deleteWidth: CGFloat = 76
+
+    init(phrase: String, isLight: Bool, reorderMode: Bool, isFirst: Bool, isLast: Bool) {
+        super.init(frame: .zero)
+        deleteButton.setTitle("削除", for: .normal)
+        deleteButton.setTitleColor(.white, for: .normal)
+        deleteButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        deleteButton.backgroundColor = .systemRed
+        deleteButton.layer.cornerRadius = 8
+        deleteButton.addAction(UIAction { [weak self] _ in self?.onDelete?() }, for: .touchUpInside)
+        addSubview(deleteButton)
+
+        card.contentHorizontalAlignment = .left
+        card.titleLabel?.numberOfLines = 3
+        card.titleLabel?.font = .systemFont(ofSize: 18)
+        card.titleLabel?.lineBreakMode = .byTruncatingTail
+        card.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: reorderMode ? 56 : 12)
+        card.layer.cornerRadius = 8
+        card.backgroundColor = isLight ? .white : UIColor(white: 0.32, alpha: 1)
+        card.setTitle(phrase, for: .normal)
+        card.setTitleColor(isLight ? .black : .white, for: .normal)
+        card.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if self.isOpen { self.setOpen(false, animated: true) } else { self.onTap?() }
+        }, for: .touchUpInside)
+        addSubview(card)
+
+        if reorderMode {
+            let up = UIButton(type: .system)
+            up.setTitle("↑", for: .normal)
+            up.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+            up.isEnabled = !isFirst
+            up.alpha = isFirst ? 0.25 : 1
+            up.addAction(UIAction { [weak self] _ in self?.onMoveUp?() }, for: .touchUpInside)
+            let down = UIButton(type: .system)
+            down.setTitle("↓", for: .normal)
+            down.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+            down.isEnabled = !isLast
+            down.alpha = isLast ? 0.25 : 1
+            down.addAction(UIAction { [weak self] _ in self?.onMoveDown?() }, for: .touchUpInside)
+            addSubview(up)
+            addSubview(down)
+            up.translatesAutoresizingMaskIntoConstraints = false
+            down.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                up.trailingAnchor.constraint(equalTo: trailingAnchor),
+                up.topAnchor.constraint(equalTo: topAnchor),
+                up.widthAnchor.constraint(equalToConstant: 48),
+                up.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.5),
+                down.trailingAnchor.constraint(equalTo: trailingAnchor),
+                down.bottomAnchor.constraint(equalTo: bottomAnchor),
+                down.widthAnchor.constraint(equalToConstant: 48),
+                down.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.5)
+            ])
+        }
+
+        panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
+        panRecognizer.delegate = self
+        panRecognizer.isEnabled = !reorderMode
+        card.addGestureRecognizer(panRecognizer)
+
+        card.translatesAutoresizingMaskIntoConstraints = false
+        deleteButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor),
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor),
+            card.widthAnchor.constraint(equalTo: widthAnchor),
+            deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            deleteButton.topAnchor.constraint(equalTo: topAnchor),
+            deleteButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            deleteButton.widthAnchor.constraint(equalToConstant: Self.deleteWidth)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setOpen(_ open: Bool, animated: Bool) {
+        isOpen = open
+        let target = CGAffineTransform(translationX: open ? -Self.deleteWidth : 0, y: 0)
+        if animated {
+            UIView.animate(withDuration: 0.2) { self.card.transform = target }
+        } else {
+            card.transform = target
+        }
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            panBase = card.transform.tx
+            onSwipeStart?()
+        case .changed:
+            let x = min(0, max(-Self.deleteWidth, panBase + gesture.translation(in: self).x))
+            card.transform = CGAffineTransform(translationX: x, y: 0)
+        case .ended, .cancelled:
+            let shouldOpen = card.transform.tx < -Self.deleteWidth / 2 || gesture.velocity(in: self).x < -300
+            setOpen(shouldOpen, animated: true)
+        default:
+            break
+        }
+    }
+}
+
+extension PhraseRowView: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: self)
+        return abs(velocity.x) > abs(velocity.y)
+    }
 }

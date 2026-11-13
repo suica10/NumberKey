@@ -68,6 +68,19 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertEqual(legacyCalls, 1)
     }
 
+    func testMoveReordersAndPersists() {
+        let store = PhraseStore(defaults: defaults, legacyPhrases: { ["a", "b", "c"] })
+        store.move(from: 2, to: 0)
+        XCTAssertEqual(store.phrases, ["c", "a", "b"])
+        store.move(from: 0, to: 2)
+        XCTAssertEqual(store.phrases, ["a", "b", "c"])
+        store.move(from: 1, to: 1)
+        store.move(from: 9, to: 0)
+        XCTAssertEqual(store.phrases, ["a", "b", "c"])
+        let reloaded = PhraseStore(defaults: defaults, legacyPhrases: { nil })
+        XCTAssertEqual(reloaded.phrases, ["a", "b", "c"])
+    }
+
     func testTextBufferMarkedFlow() {
         var buffer = TextBuffer()
         buffer.setMarked("にほんご")
