@@ -111,12 +111,52 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
             candidateStack.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor)
         ])
+        view.addSubview(canvas)
+        canvas.onText = { [weak self] in self?.insert($0) }
+        canvas.onAction = { [weak self] in self?.handle($0) }
+        canvas.onCaps = { [weak self] in
+            guard let self else { return }
+            self.shifted = true; self.capsLocked = true
+            self.canvas.updateShift(true, caps: true)
+        }
+        canvas.onDeleteHold = { [weak self] in self?.repeatDelete($0) }
+        canvas.configureGlobe = { [weak self] button in
+            guard let self else { return }
+            button.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                // 長押しで絵文字パネルが開いた直後のタップは言語切替にしない。
+                if let openedAt = self.emojiPanelOpenedAt, Date().timeIntervalSince(openedAt) < 0.6 { return }
+                self.setLanguage(!self.isJapanese)
+            }, for: .touchUpInside)
+            // 地球儀の長押しはメニュー経由でなく直接絵文字パネルを開く。
+            // 「次のキーボード」は One Keyboard のコンセプトとして持たない。
+            if button.gestureRecognizers?.contains(where: { $0.name == "emojiPanel" }) != true {
+                let hold = UILongPressGestureRecognizer(target: self, action: #selector(globeLongPressed(_:)))
+                hold.minimumPressDuration = 0.35
+                hold.name = "emojiPanel"
+                button.addGestureRecognizer(hold)
+            }
+        }
+        canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
+        canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
+        Task { await service.warmUp() }
+        let height = view.heightAnchor.constraint(equalToConstant: 270)
+        height.priority = .init(999); height.isActive = true; heightConstraint = height
+        rebuildCanvas()
+    }
+
+    private var panelsBuilt = false
+    /// パネル群（定型文・クリップボード・絵文字・登録）は初回表示まで作らない。
+    /// 起動時に全部組み立てると表示が重くなり、iOS に見限られる一因になる。
+    private func buildPanelsIfNeeded() {
+        guard !panelsBuilt else { return }
+        panelsBuilt = true
         // 定型文の登録は、枠（パネル）の中で完結させる。タイトル・入力テキスト・
         // 保存/取消ボタンを1つの枠に入れ、「ここに入力する」ことが見て分かるようにする。
         capturePanel.isHidden = true
         capturePanel.layer.cornerRadius = 10
         capturePanel.layer.borderWidth = 1
-        view.addSubview(capturePanel)
+        view.insertSubview(capturePanel, belowSubview: canvas)
         captureTitle.text = "定型文を登録"
         captureTitle.font = .systemFont(ofSize: 13, weight: .semibold)
         captureTitle.textColor = .secondaryLabel
@@ -152,7 +192,7 @@ final class KeyboardViewController: UIInputViewController {
         phrasePanel.isHidden = true
         phrasePanel.layer.cornerRadius = 10
         phrasePanel.layer.borderWidth = 1
-        view.addSubview(phrasePanel)
+        view.insertSubview(phrasePanel, belowSubview: canvas)
         phraseTitle.text = "定型文"
         phraseTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         phrasePanel.addSubview(phraseTitle)
@@ -189,7 +229,7 @@ final class KeyboardViewController: UIInputViewController {
         clipboardPanel.isHidden = true
         clipboardPanel.layer.cornerRadius = 10
         clipboardPanel.layer.borderWidth = 1
-        view.addSubview(clipboardPanel)
+        view.insertSubview(clipboardPanel, belowSubview: canvas)
         clipboardTitle.text = "クリップボード"
         clipboardTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         clipboardPanel.addSubview(clipboardTitle)
@@ -221,7 +261,7 @@ final class KeyboardViewController: UIInputViewController {
         emojiPanel.isHidden = true
         emojiPanel.layer.cornerRadius = 10
         emojiPanel.layer.borderWidth = 1
-        view.addSubview(emojiPanel)
+        view.insertSubview(emojiPanel, belowSubview: canvas)
         emojiTitle.text = "絵文字"
         emojiTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         emojiPanel.addSubview(emojiTitle)
@@ -252,45 +292,25 @@ final class KeyboardViewController: UIInputViewController {
             emojiStack.widthAnchor.constraint(equalTo: emojiScroll.frameLayoutGuide.widthAnchor)
         ])
         emojiPanel.addSubview(emojiScroll)
-        view.addSubview(canvas)
-        canvas.onText = { [weak self] in self?.insert($0) }
-        canvas.onAction = { [weak self] in self?.handle($0) }
-        canvas.onCaps = { [weak self] in
-            guard let self else { return }
-            self.shifted = true; self.capsLocked = true
-            self.canvas.updateShift(true, caps: true)
-        }
-        canvas.onDeleteHold = { [weak self] in self?.repeatDelete($0) }
-        canvas.configureGlobe = { [weak self] button in
-            guard let self else { return }
-            button.addAction(UIAction { [weak self] _ in
-                guard let self else { return }
-                // 長押しで絵文字パネルが開いた直後のタップは言語切替にしない。
-                if let openedAt = self.emojiPanelOpenedAt, Date().timeIntervalSince(openedAt) < 0.6 { return }
-                self.setLanguage(!self.isJapanese)
-            }, for: .touchUpInside)
-            // 地球儀の長押しはメニュー経由でなく直接絵文字パネルを開く。
-            // 「次のキーボード」は One Keyboard のコンセプトとして持たない。
-            if button.gestureRecognizers?.contains(where: { $0.name == "emojiPanel" }) != true {
-                let hold = UILongPressGestureRecognizer(target: self, action: #selector(globeLongPressed(_:)))
-                hold.minimumPressDuration = 0.35
-                hold.name = "emojiPanel"
-                button.addGestureRecognizer(hold)
-            }
-        }
-        canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
-        canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
-        Task { await service.warmUp() }
-        let height = view.heightAnchor.constraint(equalToConstant: 270)
-        height.priority = .init(999); height.isActive = true; heightConstraint = height
-        rebuildCanvas()
     }
+    private var lastAppearanceSnapshot: LayoutSettings?
+    private var lastAppearanceJapanese: Bool?
+    private var lastAppearanceStyle: UIUserInterfaceStyle = .unspecified
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        KeyboardSettings.migrateLegacyExtensionPreferences()
         settings = KeyboardSettings()
-        rebuildCanvas()
+        // 設定が変わったときだけキャンバスを組み直す。毎回組み直すと、キーボードを
+        // 開くたびに全キーを再生成することになり表示が重くなる。旧設定の移行は
+        // viewDidLoad で1回だけ行う（ここで毎回やる必要はない）。
+        let snapshot = settings.snapshot
+        let style = traitCollection.userInterfaceStyle
+        if snapshot != lastAppearanceSnapshot || settings.japanese != lastAppearanceJapanese || style != lastAppearanceStyle {
+            lastAppearanceSnapshot = snapshot
+            lastAppearanceJapanese = settings.japanese
+            lastAppearanceStyle = style
+            rebuildCanvas()
+        }
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -417,9 +437,13 @@ final class KeyboardViewController: UIInputViewController {
         // システムのUIMenuは小さくて長い定型文が読めないため、長押しでは
         // 自前の大きな定型文パネルを開く（旧updateSpaceMenuは置き換え）。
         button.menu = nil
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPressed(_:)))
-        hold.minimumPressDuration = 0.35
-        button.addGestureRecognizer(hold)
+        // キャンバス再構築のたびに認識器が積み重ならないよう1つだけにする。
+        if button.gestureRecognizers?.contains(where: { $0.name == "phrasePicker" }) != true {
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPressed(_:)))
+            hold.minimumPressDuration = 0.35
+            hold.name = "phrasePicker"
+            button.addGestureRecognizer(hold)
+        }
     }
     @objc private func spaceLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, !isCapturing else { return }
@@ -432,6 +456,7 @@ final class KeyboardViewController: UIInputViewController {
         showEmojiPanel()
     }
     private func showPhrasePicker() {
+        buildPanelsIfNeeded()
         hideClipboardPanel()
         phraseStore.reload()
         pickerReorderMode = false
@@ -460,6 +485,7 @@ final class KeyboardViewController: UIInputViewController {
         captureClipboard()
     }
     private func showClipboardPanel() {
+        buildPanelsIfNeeded()
         captureClipboard()
         hidePhrasePicker()
         isClipboardPicking = true
@@ -473,6 +499,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func showEmojiPanel() {
         guard !isCapturing else { return }
+        buildPanelsIfNeeded()
         hidePhrasePicker()
         hideClipboardPanel()
         if emojiCategories.isEmpty { emojiCategories = EmojiCatalog.loadBundled() }
@@ -655,6 +682,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func beginCapture() {
         guard !isCapturing else { return }
+        buildPanelsIfNeeded()
         hidePhrasePicker()
         hideClipboardPanel()
         syncHostChange(); commitCurrent()
@@ -779,7 +807,7 @@ final class KeyboardViewController: UIInputViewController {
         if !isJapanese, !symbols, composition.isEmpty, text.count == 1, ".?!,".contains(text) {
             autocorrectEnglishWord(delimiter: text)
         }
-        let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
+        let roman = text.count == 1 && text.first.map { $0.isASCII && ($0.isLetter || $0 == "'") } == true
         let isRomanInput = roman && !symbols
         if isJapanese && (isRomanInput || !composition.isEmpty) {
             if composition.input.count >= 96 { commitRaw() }

@@ -11,14 +11,12 @@ import Foundation
 struct EnglishLexicon {
     let words: [String]
     let frequencies: [Int]
-    private let wordSet: Set<String>
     private let frequencyMap: [String: Int]
 
     init(words unsortedWords: [String], frequencies unsortedFrequencies: [Int]) {
         let pairs = zip(unsortedWords, unsortedFrequencies).sorted { $0.0 < $1.0 }
         words = pairs.map { $0.0 }
         frequencies = pairs.map { $0.1 }
-        wordSet = Set(words)
         var map: [String: Int] = [:]
         map.reserveCapacity(words.count)
         for (word, frequency) in pairs { map[word] = frequency }
@@ -46,7 +44,7 @@ struct EnglishLexicon {
         return EnglishLexicon(data: data)
     }
 
-    func contains(_ word: String) -> Bool { wordSet.contains(word) }
+    func contains(_ word: String) -> Bool { frequencyMap[word] != nil }
 
     func frequency(of word: String) -> Int { frequencyMap[word] ?? 0 }
 
@@ -59,15 +57,23 @@ struct EnglishLexicon {
             let mid = (low + high) / 2
             if words[mid] < prefix { low = mid + 1 } else { high = mid }
         }
-        var found: [(String, Int)] = []
+        // 接頭辞の範囲を走査しながら上位 limit 件だけを保持する。全件を集めて
+        // ソートすると、短い接頭辞では毎打鍵で数千件規模の処理になってしまう。
+        var top: [(String, Int)] = []
+        top.reserveCapacity(limit + 1)
         var index = low
         while index < words.count, words[index].hasPrefix(prefix) {
-            if words[index] != prefix { found.append((words[index], frequencies[index])) }
+            if words[index] != prefix {
+                let frequency = frequencies[index]
+                if top.count < limit {
+                    top.append((words[index], frequency))
+                } else if let weakest = top.indices.min(by: { top[$0].1 < top[$1].1 }), frequency > top[weakest].1 {
+                    top[weakest] = (words[index], frequency)
+                }
+            }
             index += 1
-            if found.count >= 4000 { break }
         }
-        found.sort { $0.1 > $1.1 }
-        return found.prefix(limit).map { $0.0 }
+        return top.sorted { $0.1 > $1.1 }.map { $0.0 }
     }
 
     /// 編集距離1の生成候補のうち辞書にあるものを頻度順に返す。

@@ -38,6 +38,7 @@ final class KeyboardCanvas: UIView {
         self.symbols = symbols; self.symbolPage = symbolPage
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; characterRows = []; bottom = []
+        lastLayoutFont = -1  // キーを作り直したのでフォントを当て直させる
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
         if symbols {
             let mainSymbols = ["-", "/", ":", ";", "(", ")", "$", "&", "@", String(UnicodeScalar(34)!)]
@@ -103,6 +104,10 @@ final class KeyboardCanvas: UIView {
         enter.addGestureRecognizer(pasteHold)
         spaceButton = space
         bottom = [symbolsKey, globe, comma, space, period, enter]
+        // 再構築前の確定/改行の表示状態を引き継ぐ。
+        let composing = lastComposing ?? false
+        lastComposing = nil
+        setComposing(composing)
         setJapaneseMode(japanese)
         updateShift(shifted, caps: false)
         setNeedsLayout()
@@ -135,6 +140,8 @@ final class KeyboardCanvas: UIView {
         return height * rowCount + width * 26 / 1206 * (rowCount - 1) + 7
     }
 
+    private var lastLayoutFont: CGFloat = -1
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard characterRows.count == (symbols ? 3 : 4), bottom.count == 6 else { return }
@@ -143,6 +150,9 @@ final class KeyboardCanvas: UIView {
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
         let keyHeight = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
         let font = min(26, max(18, width * 66 / 1206))
+        // フォントとシンボル設定は幅が変わったときだけ当て直す（レイアウトの
+        // たびに全キーへ設定し直すと、それだけで再描画が走って重くなる）。
+        let fontsChanged = font != lastLayoutFont
         let sideWidth = keyWidth * 1.34
         for (rowIndex, row) in characterRows.enumerated() {
             let count = row.count
@@ -158,20 +168,22 @@ final class KeyboardCanvas: UIView {
             let y = 3 + CGFloat(rowIndex) * (keyHeight + verticalGap)
             for (column, key) in row.enumerated() {
                 key.frame = CGRect(x: start + CGFloat(column) * (rowWidth + gap), y: y, width: rowWidth, height: keyHeight)
-                key.titleLabel?.font = .systemFont(ofSize: font)
+                if fontsChanged { key.titleLabel?.font = .systemFont(ofSize: font) }
             }
         }
         let actionRow = symbols ? 2 : 3
         let actionY = 3 + CGFloat(actionRow) * (keyHeight + verticalGap)
         shiftButton?.frame = CGRect(x: edge, y: actionY, width: sideWidth, height: keyHeight)
         deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: actionY, width: sideWidth, height: keyHeight)
-        let icon = UIImage.SymbolConfiguration(pointSize: font + 2, weight: .semibold)
-        if symbols {
-            shiftButton?.titleLabel?.font = .systemFont(ofSize: 16)
-        } else {
-            shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
+        if fontsChanged {
+            let icon = UIImage.SymbolConfiguration(pointSize: font + 2, weight: .semibold)
+            if symbols {
+                shiftButton?.titleLabel?.font = .systemFont(ofSize: 16)
+            } else {
+                shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
+            }
+            deleteButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
         }
-        deleteButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
         let weights: [CGFloat] = [120, 110, 100, 460, 100, 242]
         let available = width - 2 * edge - CGFloat(bottom.count - 1) * gap
         var x = edge
@@ -179,10 +191,13 @@ final class KeyboardCanvas: UIView {
         for i in bottom.indices {
             let key = bottom[i], w = available * weights[i] / weights.reduce(0, +)
             key.frame = CGRect(x: x, y: bottomY, width: w, height: keyHeight)
-            key.titleLabel?.font = .systemFont(ofSize: min(20, max(15, font * 0.82)))
-            key.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: font + 3, weight: .regular), forImageIn: .normal)
+            if fontsChanged {
+                key.titleLabel?.font = .systemFont(ofSize: min(20, max(15, font * 0.82)))
+                key.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: font + 3, weight: .regular), forImageIn: .normal)
+            }
             x += w + gap
         }
+        if fontsChanged { lastLayoutFont = font }
     }
 
     func updateShift(_ shifted: Bool, caps: Bool) {
@@ -205,7 +220,10 @@ final class KeyboardCanvas: UIView {
         spaceButton?.setTitle(japanese ? "日本語" : "space", for: .normal)
         spaceButton?.accessibilityLabel = japanese ? "日本語入力" : "スペース"
     }
+    private var lastComposing: Bool?
     func setComposing(_ composing: Bool) {
+        guard composing != lastComposing else { return }
+        lastComposing = composing
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
         bottom.last?.accessibilityLabel = composing ? "確定" : "改行"
     }
