@@ -877,12 +877,18 @@ final class KeyboardViewController: UIInputViewController {
         guard !snapshot.isEmpty else { return }
         let service = service
         conversionTask = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 12_000_000) } catch { return }
+            // 打鍵の束をまとめるための短い待ち。長くするとその分だけ候補の
+            // 出現が遅れるので最小限にし、古い変換の実行自体はサービス側の
+            // 世代ゲートで省く。
+            do { try await Task.sleep(nanoseconds: 4_000_000) } catch { return }
             guard !Task.isCancelled else { return }
-            let result = await service.candidates(for: snapshot)
+            // 世代遅れでスキップされたら nil。状態は新しいタスクが持つので触らない。
+            guard let result = await service.candidates(for: snapshot, generation: requestRevision) else { return }
             guard !Task.isCancelled, let self, self.revision == requestRevision else { return }
-            self.syncHostChange()
-            guard self.revision == requestRevision else { return }
+            // ここで syncHostChange() はしない。変換中にホスト側で編集があれば
+            // textDidChange / selectionDidChange 側のチェックで composition が
+            // リセットされ、revision ガードでこの結果は捨てられる。毎回の
+            // documentContext 読み直し（ホスト往復）を候補表示の経路から外す。
             var seen = Set<String>()
             let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
             let withEnglish = self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot))

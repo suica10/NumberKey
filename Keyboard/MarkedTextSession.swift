@@ -35,16 +35,22 @@ final class MarkedTextSession {
     private(set) var isUpdating = false
     init(document: @escaping () -> KeyboardDocument) { getDocument = document }
     private func context(_ d: KeyboardDocument) -> Context { Context(before: d.before, after: d.after) }
-    private func update(_ body: (KeyboardDocument) -> Void) {
+    /// proxy の変更後に documentContextBeforeInput / AfterInput を読み直すのは
+    /// ホストアプリとの往復になるため、キーボード拡張では目に見えて高くつく。
+    /// スナップショットは「マーク付きテキストが生きていて、後の hostDidChange /
+    /// finish が expected を参照する」場合にだけ必要なので、それ以外では読まない。
+    /// snapshot を nil にすると「変更前の hasMarkedText」から自動判定する。
+    private func update(snapshot: Bool? = nil, _ body: (KeyboardDocument) -> Void) {
+        let shouldSnapshot = snapshot ?? hasMarkedText
         isUpdating = true
         let document = getDocument()
         body(document)
-        expected = context(document)
+        if shouldSnapshot { expected = context(document) }
         isUpdating = false
     }
     func show(_ text: String, caret: Int) {
         if text.isEmpty {
-            if hasMarkedText { update { $0.setMarkedText("", selectedRange: NSRange(location: 0, length: 0)); $0.unmarkText() } }
+            if hasMarkedText { update(snapshot: false) { $0.setMarkedText("", selectedRange: NSRange(location: 0, length: 0)); $0.unmarkText() } }
             forget()
             return
         }
@@ -55,14 +61,15 @@ final class MarkedTextSession {
     }
     func commit(_ text: String) {
         let replace = hasMarkedText
-        update {
+        // 直後に forget() で expected を捨てるため、スナップショットは不要。
+        update(snapshot: false) {
             if replace { $0.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0)); $0.unmarkText() }
             else { $0.insertText(text) }
         }
         forget()
     }
     func finish() {
-        if hasMarkedText && expected == context(getDocument()) { update { $0.unmarkText() } }
+        if hasMarkedText && expected == context(getDocument()) { update(snapshot: false) { $0.unmarkText() } }
         forget()
     }
     func insert(_ text: String) { update { $0.insertText(text) } }
