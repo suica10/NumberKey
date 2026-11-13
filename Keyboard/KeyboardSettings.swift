@@ -54,7 +54,7 @@ struct LayoutSettings: Codable, Equatable {
 }
 
 struct KeyboardSettings {
-    static let appGroupIdentifier = "group.jp.suica10.NumberKey"
+    static let appGroupIdentifier = "group.jp.onejpkey.NumberKey"
     static var sharedContainerAvailable: Bool {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) != nil
     }
