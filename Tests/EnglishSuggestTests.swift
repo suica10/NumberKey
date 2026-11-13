@@ -37,6 +37,13 @@ final class EnglishSuggestTests: XCTestCase {
         XCTAssertNil(lexicon.autocorrect(for: "ap"))       // 短すぎる語は直さない
     }
 
+    func testEnglishCandidatesForRomajiInput() {
+        XCTAssertEqual(lexicon.englishCandidates(forRomaji: "apple"), ["apple", "Apple"])
+        XCTAssertEqual(lexicon.englishCandidates(forRomaji: "fusion"), ["fusion"])
+        XCTAssertEqual(lexicon.englishCandidates(forRomaji: "a"), [])
+        XCTAssertEqual(lexicon.englishCandidates(forRomaji: "あい"), [])
+    }
+
     func testBundledWordlistParses() {
         let data = Data("apple\t150\nbanana\t120\n".utf8)
         let parsed = EnglishLexicon(data: data)

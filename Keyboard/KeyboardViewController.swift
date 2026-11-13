@@ -41,6 +41,7 @@ final class KeyboardViewController: UIInputViewController {
     private let clipboardStore = ClipboardHistoryStore()
     private lazy var englishLexicon = EnglishLexicon.loadBundled()
     private var englishSuggestions: [String] = []
+    private var englishExtraValues: Set<String> = []
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
     private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
     private var showsCandidateStrip: Bool {
@@ -76,6 +77,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         KeyboardSettings.migrateLegacyExtensionPreferences()
+        _ = englishLexicon  // 単語リストの読み込みを初回打鍵ではなく起動時に済ませる
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateStack.axis = .horizontal
@@ -617,8 +619,8 @@ final class KeyboardViewController: UIInputViewController {
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
         // 残したまま新しい変換結果を待つ（空のときだけ基本候補で埋める）。
-        if snapshot.isEmpty { candidates = [] }
-        else if candidates.isEmpty { candidates = baseCandidates() }
+        if snapshot.isEmpty { candidates = []; englishExtraValues = [] }
+        else if candidates.isEmpty { candidates = insertEnglishExtras(baseCandidates(), raw: rawRomaji(of: snapshot)) }
         conversionTask?.cancel()
         renderState()
         guard !snapshot.isEmpty else { return }
@@ -631,12 +633,37 @@ final class KeyboardViewController: UIInputViewController {
             self.syncHostChange()
             guard self.revision == requestRevision else { return }
             var seen = Set<String>()
-            self.candidates = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted }.prefix(30))
+            let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
+            self.candidates = Array(self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot)).prefix(30))
             self.conversionReady = true
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             self.waitingSpaceCount = 0
             self.renderState()
         }
+    }
+    /// composition の生のローマ字入力を復元する（英字候補の判定用）。
+    private func rawRomaji(of composition: ComposingText) -> String {
+        var result = ""
+        for element in composition.input {
+            switch element.piece {
+            case .character(let character): result.append(character)
+            case .key(_, let input, _): result.append(input)
+            case .compositionSeparator: break
+            }
+        }
+        return result
+    }
+    /// 日本語の候補列に英字そのまま候補を差し込む。英単語として成立すれば
+    /// 上位（2番手）、そうでなければ3番手。英字候補は日本語変換の学習対象にしない。
+    private func insertEnglishExtras(_ list: [String], raw: String) -> [String] {
+        guard isJapanese, let lexicon = englishLexicon else { englishExtraValues = []; return list }
+        let extras = lexicon.englishCandidates(forRomaji: raw).filter { !list.contains($0) }
+        englishExtraValues = Set(extras)
+        guard !extras.isEmpty else { return list }
+        var merged = list
+        let position = min(lexicon.contains(raw) && raw.count >= 3 ? 1 : 2, merged.count)
+        merged.insert(contentsOf: extras, at: position)
+        return merged
     }
     private func baseCandidates() -> [String] {
         guard !composition.isEmpty else { return [] }
@@ -712,7 +739,7 @@ final class KeyboardViewController: UIInputViewController {
                     guard self.conversionReady else { return }
                     self.syncHostChange()
                     guard self.revision == displayedRevision else { return }
-                    self.commit(value, learn: true)
+                    self.commit(value, learn: !self.englishExtraValues.contains(value))
                 }
                 key.actionRevision = displayedRevision
             }
@@ -796,7 +823,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func commitCurrent() {
         guard !composition.isEmpty else { return }
-        if let selected, candidates.indices.contains(selected) { commit(candidates[selected], learn: true) }
+        if let selected, candidates.indices.contains(selected) { commit(candidates[selected], learn: !englishExtraValues.contains(candidates[selected])) }
         else { commitRaw() }
     }
     private func commitRaw() {

@@ -96,6 +96,17 @@ struct EnglishLexicon {
         return Array(result.prefix(limit))
     }
 
+    /// 日本語モードで打たれたローマ字に対する英字候補。
+    /// 入力そのままを常に出し、英単語として成立する場合は先頭大文字も出す。
+    func englishCandidates(forRomaji raw: String) -> [String] {
+        guard raw.count >= 2, raw.allSatisfy({ ($0.isASCII && $0.isLetter) || $0 == "'" }) else { return [] }
+        var result = [raw]
+        if contains(raw) {
+            result.append(raw.prefix(1).uppercased() + String(raw.dropFirst()))
+        }
+        return result
+    }
+
     /// スペース確定時に置き換えてよい確信がある場合だけ修正先を返す。
     /// 辞書にある単語・短すぎる単語は対象外。距離2は頻度が非常に高い語に限る。
     func autocorrect(for word: String) -> String? {
