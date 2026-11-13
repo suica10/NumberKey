@@ -896,9 +896,11 @@ final class KeyboardViewController: UIInputViewController {
         let requestRevision = revision, snapshot = composition
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
-        // 残したまま新しい変換結果を待つ（空のときだけ基本候補で埋める）。
+        // 残したまま新しい変換結果を待つ。
+        // 空のときの「基本候補で先埋め」もしない: 単語の打ち始めに [かな, カナ]
+        // が一瞬出てから本候補に総入れ替えされる二度表示が、ちらつきの主因。
+        // 変換は約5msで返るので、先埋めなしでも空白は知覚できない。
         if snapshot.isEmpty { candidates = []; englishExtraValues = []; packExtraValues = [] }
-        else if candidates.isEmpty { candidates = insertPackExtras(insertEnglishExtras(baseCandidates(), raw: rawRomaji(of: snapshot)), kana: snapshot.convertTarget) }
         conversionTask?.cancel()
         renderState()
         PerfProbe.shared.record("input", since: inputStamp)
