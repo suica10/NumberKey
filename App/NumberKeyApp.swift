@@ -9,6 +9,8 @@ struct NumberKeyApp: App {
 struct SettingsView: View {
     @State private var layout = KeyboardSettings().snapshot
     @State private var sample = ""
+    @State private var packEnabled: [DictionaryPackID: Bool] = [:]
+    private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
     @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
     /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
@@ -53,6 +55,18 @@ struct SettingsView: View {
                     }
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
                 }
+                Section("辞書パック") {
+                    ForEach(DictionaryPackID.allCases, id: \.rawValue) { id in
+                        Toggle(id.displayName, isOn: Binding(
+                            get: { packEnabled[id] ?? packStore.isEnabled(id) },
+                            set: { value in
+                                packEnabled[id] = value
+                                packStore.setEnabled(id, value)
+                            }))
+                    }
+                    Text("ON の辞書だけを読み込みます。SNS の候補は、変換候補の先頭に出ます。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("定型文") {
                     Text("定型文はキーボードの中で登録・削除します。スペースキーを長押しして「定型文を追加」を選ぶと、そのまま入力して保存できます。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -90,6 +104,7 @@ struct SettingsView: View {
             .navigationTitle("NumberKey")
             .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
             .task {
+                packEnabled = DictionaryPackID.allCases.reduce(into: [:]) { $0[$1] = packStore.isEnabled($1) }
                 await store.refresh()
                 // 購入確認で unlocked フラグが書かれた可能性があるので判定し直す。
                 gateState = PurchaseGate.currentState()

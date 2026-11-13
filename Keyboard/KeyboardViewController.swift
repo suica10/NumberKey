@@ -591,7 +591,7 @@ final class KeyboardViewController: UIInputViewController {
     private func rebuildEmojiCategories() {
         emojiCategoryButtons.forEach { $0.removeFromSuperview() }
         emojiCategoryButtons = []
-        for (index, name) in (["最近"] + emojiCategories.map { $0.name } + ["辞書"]).enumerated() {
+        for (index, name) in (["最近"] + emojiCategories.map { $0.name }).enumerated() {
             let button = UIButton(type: .system)
             button.setTitle(name, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 14, weight: index == emojiCategoryIndex ? .bold : .regular)
@@ -606,13 +606,7 @@ final class KeyboardViewController: UIInputViewController {
             emojiCategoryButtons.append(button)
         }
     }
-    /// 絵文字カテゴリの末尾に足した「辞書」タブのインデックス。
-    private var dictionaryTabIndex: Int { emojiCategories.count + 1 }
     private func rebuildEmojiGrid() {
-        if emojiCategoryIndex == dictionaryTabIndex {
-            rebuildDictionaryRows()
-            return
-        }
         emojiStack.arrangedSubviews.forEach { emojiStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         let emojis = emojiCategoryIndex == 0 ? recentEmojiStore.items
             : (emojiCategories.indices.contains(emojiCategoryIndex - 1) ? emojiCategories[emojiCategoryIndex - 1].emojis : [])
@@ -641,31 +635,6 @@ final class KeyboardViewController: UIInputViewController {
             }
             for _ in slice.count..<columns { row.addArrangedSubview(UIView()) }
             emojiStack.addArrangedSubview(row)
-        }
-        emojiScroll.setContentOffset(.zero, animated: false)
-    }
-    /// 「辞書」タブの中身。辞書パックの ON/OFF を切り替える。
-    /// OFF のパックはデータ自体を読み込まない (DictionaryPackLibrary 参照)。
-    private func rebuildDictionaryRows() {
-        emojiStack.arrangedSubviews.forEach { emojiStack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        let note = UILabel()
-        note.text = "辞書パック（タップで ON / OFF）"
-        note.font = .systemFont(ofSize: 14)
-        note.textColor = .secondaryLabel
-        emojiStack.addArrangedSubview(note)
-        for id in DictionaryPackID.allCases {
-            let enabled = dictionaryStore.isEnabled(id)
-            let button = UIButton(type: .system)
-            button.setTitle("\(id.displayName)　\(enabled ? "● ON" : "○ OFF")", for: .normal)
-            button.titleLabel?.font = .systemFont(ofSize: 17)
-            button.contentHorizontalAlignment = .left
-            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-            button.addAction(UIAction { [weak self] _ in
-                guard let self else { return }
-                self.dictionaryStore.setEnabled(id, !enabled)
-                self.rebuildDictionaryRows()
-            }, for: .touchUpInside)
-            emojiStack.addArrangedSubview(button)
         }
         emojiScroll.setContentOffset(.zero, animated: false)
     }
@@ -1002,14 +971,17 @@ final class KeyboardViewController: UIInputViewController {
         merged.insert(contentsOf: extras, at: position)
         return merged
     }
-    /// 辞書パックの候補を候補列の末尾に差し込む (通常辞書より低優先)。
-    /// 読みがかな文字列と完全一致した表記だけを出す (部分一致は誤爆する)。
+    /// 辞書パックの候補を候補列に差し込む。SNS は候補列の先頭に固定し
+    /// (変換・リランク・タイポ補正の後段なので並び替えでは動かない)、
+    /// それ以外のパックは末尾に足す (通常辞書より低優先)。読みがかな文字列と
+    /// 完全一致した表記だけを出す (部分一致は誤爆する)。
     /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない。
     private func insertPackExtras(_ list: [String], kana: String) -> [String] {
         guard isJapanese else { packExtraValues = []; return list }
-        let extras = dictionaryLibrary.surfaces(forKana: kana, store: dictionaryStore).filter { !list.contains($0) }
-        packExtraValues = Set(extras)
-        return list + extras
+        let pinned = dictionaryLibrary.pinnedSurfaces(forKana: kana, store: dictionaryStore)
+        let appended = dictionaryLibrary.appendedSurfaces(forKana: kana, store: dictionaryStore)
+        packExtraValues = Set(pinned + appended)
+        return DictionaryPackLibrary.mergingPacks(into: list, pinned: pinned, appended: appended)
     }
     /// 変換学習に回してよい候補か。英字そのまま候補と辞書パック候補は回さない。
     private func shouldLearn(_ value: String) -> Bool {
