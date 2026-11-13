@@ -118,6 +118,11 @@ final class KeyboardViewController: UIInputViewController {
         saveButton.setTitle("保存", for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         saveButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: true) }, for: .touchUpInside)
+        let pasteButton = UIButton(type: .system)
+        pasteButton.setTitle("貼り付け", for: .normal)
+        pasteButton.titleLabel?.font = .systemFont(ofSize: 17)
+        pasteButton.addAction(UIAction { [weak self] _ in self?.pasteIntoCapture() }, for: .touchUpInside)
+        captureButtonRow.addArrangedSubview(pasteButton)
         captureButtonRow.addArrangedSubview(spacer)
         captureButtonRow.addArrangedSubview(cancelButton)
         captureButtonRow.addArrangedSubview(saveButton)
@@ -537,6 +542,28 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func updateCaptureStrip() {
         capturePanel.isHidden = !isCapturing
+    }
+    /// 登録パネルはラベル表示でシステムのカーソル/ペーストが付かないため、
+    /// 専用ボタンでクリップボードの文字列をバッファへ直接入れる。
+    private func pasteIntoCapture() {
+        guard isCapturing else { return }
+        guard hasFullAccess else {
+            let alert = UIAlertController(title: "貼り付けできません",
+                                          message: "クリップボードの読み取りにはフルアクセスが必要です。設定でNumberKeyのフルアクセスを許可してください。",
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        guard let pasted = UIPasteboard.general.string, !pasted.isEmpty else { return }
+        var sanitized = ""
+        for scalar in pasted.unicodeScalars {
+            if scalar == "\n" || scalar == "\r" { sanitized.append(" ") }
+            else if !CharacterSet.controlCharacters.contains(scalar) { sanitized.unicodeScalars.append(scalar) }
+        }
+        guard !sanitized.isEmpty else { return }
+        commitCurrent()
+        editor.insert(sanitized)
     }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
