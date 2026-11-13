@@ -81,6 +81,7 @@ final class KeyboardViewController: UIInputViewController {
     private var emojiCategoryButtons: [UIButton] = []
     private let recentEmojiStore = RecentEmojiStore()
     private var emojiPanelOpenedAt: Date?
+    private var lastStripValues: [String] = []
     private let clipboardStack = UIStackView()
     private let clipboardClearButton = UIButton(type: .system)
     private var isClipboardPicking = false
@@ -927,6 +928,15 @@ final class KeyboardViewController: UIInputViewController {
                     self.commit(value, learn: !self.englishExtraValues.contains(value))
                 }
                 key.actionRevision = displayedRevision
+            }
+        }
+        // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
+        // （選択ハイライトだけの変化では戻さない。）
+        let stripValues = isJapanese ? candidates : englishSuggestions
+        if stripValues != lastStripValues {
+            lastStripValues = stripValues
+            if candidateScroll.contentOffset.x != 0 {
+                candidateScroll.setContentOffset(.zero, animated: false)
             }
         }
     }
