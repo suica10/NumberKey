@@ -37,6 +37,19 @@ jobs:
           xcodegen generate
       - name: Test kana input and dictionary conversion
         run: swift test --configuration release
+      - name: (Prototype) Dump candidate lists for rerank evaluation
+        if: github.ref_name == 'claude/neural-rerank-prototype'
+        env:
+          PROTO_EVAL_JSON: ${{ github.workspace }}/Prototype/eval_sentences.json
+          PROTO_DUMP_DIR: ${{ github.workspace }}/build/proto
+        run: swift test --configuration release --filter CandidateDumpTests
+      - name: (Prototype) Upload candidates.json
+        if: github.ref_name == 'claude/neural-rerank-prototype'
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidates
+          path: build/proto/candidates.json
+          if-no-files-found: error
       - name: Resolve iOS dependencies
         run: |
           xcodebuild -resolvePackageDependencies \
