@@ -12,7 +12,7 @@ let package = Package(
             dependencies: [.product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter")],
             path: "Keyboard",
             exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "PerfProbe.swift", "Info.plist"],
-            sources: ["ConversionService.swift", "RerankScorer.swift"]
+            sources: ["ConversionService.swift", "RerankScorer.swift", "TypoCorrection.swift"]
         ),
         .target(
             name: "PhraseStore",

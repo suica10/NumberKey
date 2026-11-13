@@ -36,6 +36,27 @@ actor ConversionService {
         guard let converter else { return [] }
         learningCandidates.removeAll()
         let convStart = ProcessInfo.processInfo.systemUptime
+        let visibleCandidates = fullInputCandidates(for: composition, converter: converter)
+        let top = visibleCandidates.prefix(12).map { $0 }
+        // AI リランク: 学習済み LM で候補を並べ替える (評価で top-1 76.0%→86.5%)。
+        // モデルが読み込めなければ従来の順序のまま。計測 (conv) は変換+並べ替え
+        // の合計 — 利用者体感に効くのはサービス全体の時間だから。
+        guard let scorer = RerankScorer.shared else {
+            Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
+            return top
+        }
+        let reranked = scorer.rerank(top)
+        // タイポ補正: 勝者の LM スコアが低いときだけ、1編集バリアントの
+        // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
+        let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
+        Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
+        return corrected
+    }
+
+    /// 変換器に問い合わせ、入力全体に対応する候補だけを返す (部分確定で
+    /// 後続を捨てる候補は出さない)。通常変換とタイポ補正のバリアント
+    /// 変換で共有する。
+    private func fullInputCandidates(for composition: ComposingText, converter: KanaKanjiConverter) -> [String] {
         let results = converter.requestCandidates(composition, options: .init(
             N_best: 4,
             requireJapanesePrediction: .disabled,
@@ -50,7 +71,7 @@ actor ConversionService {
             metadata: .init(versionString: "NumberKey 0.3.2")
         ))
         var seen = Set<String>()
-        let visibleCandidates = results.mainResults.compactMap { candidate -> String? in
+        return results.mainResults.compactMap { candidate -> String? in
             guard candidate.inputable, !candidate.text.isEmpty else { return nil }
             // Only offer full-input candidates: committing a prefix must not discard the suffix.
             var remainder = composition
@@ -59,13 +80,40 @@ actor ConversionService {
             if candidate.isLearningTarget { learningCandidates[candidate.text] = candidate }
             return candidate.text
         }
-        let top = visibleCandidates.prefix(12).map { $0 }
-        // AI リランク: 学習済み LM で候補を並べ替える (評価で top-1 76.0%→86.5%)。
-        // モデルが読み込めなければ従来の順序のまま。計測 (conv) は変換+並べ替え
-        // の合計 — 利用者体感に効くのはサービス全体の時間だから。
-        let reranked = RerankScorer.shared?.rerank(top) ?? top
-        Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
-        return reranked
+    }
+
+    /// ゲート付きタイポ補正。勝者の lm_avg が閾値未満なら、入力の
+    /// 1編集バリアントを変換して候補をプールし、プール最良が勝者を
+    /// マージン以上上回る場合に限り、プールの上位で置き換える。
+    /// それ以外 (ゲート不発・バリアント無し・プールが伸びない) は
+    /// 通常の並びをそのまま返す。
+    private func typoCorrected(input: String, ranked: [String], converter: KanaKanjiConverter, scorer: RerankScorer) -> [String] {
+        guard let winner = ranked.first else { return ranked }
+        let winnerSum = scorer.score([winner])[0]
+        let winnerAvg = winnerSum / Float(TypoCorrection.tokenCount(of: winner))
+        guard winnerAvg < TypoCorrection.gateThresholdAvg else { return ranked }
+        let variants = TypoCorrection.variantKanas(forKana: input)
+        guard !variants.isEmpty else { return ranked }
+        var pool = ranked
+        var seen = Set(ranked)
+        for variant in variants {
+            var composition = ComposingText()
+            composition.insertAtCursorPosition(variant, inputStyle: .direct)
+            for candidate in fullInputCandidates(for: composition, converter: converter)
+            where seen.insert(candidate).inserted {
+                pool.append(candidate)
+            }
+        }
+        guard pool.count > ranked.count else { return ranked }
+        let scores = scorer.score(pool)
+        guard let bestIndex = scores.indices.max(by: { scores[$0] < scores[$1] }),
+              pool[bestIndex] != winner,
+              scores[bestIndex] - winnerSum >= TypoCorrection.marginSum
+        else { return ranked }
+        let order = pool.indices.sorted { a, b in
+            scores[a] != scores[b] ? scores[a] > scores[b] : a < b
+        }
+        return order.prefix(12).map { pool[$0] }
     }
 
     func learn(_ text: String) {

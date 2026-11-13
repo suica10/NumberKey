@@ -1,0 +1,1075 @@
+{
+ "items": [
+  {
+   "kana": "あかちゃんがげんきにないている",
+   "romaji": "akachangagenkininaiteiru",
+   "typo_kana": "あきあちゃんがげんきにないている",
+   "expected": "赤ちゃんが元気に泣いている",
+   "typo_kind": "ins",
+   "clean_lm_winner": "赤ちゃんが元気に泣いている",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あさごはんをたべましたか",
+   "romaji": "asagohanwotabemashitaka",
+   "typo_kana": "あさごはんをたべましたいあ",
+   "expected": "朝ご飯を食べましたか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "朝ご飯を食べましたか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あさはやくおきるのがつらい",
+   "romaji": "asahayakuokirunogatsurai",
+   "typo_kana": "あさはうあくおきるのがつらい",
+   "expected": "朝早く起きるのが辛い",
+   "typo_kind": "sub",
+   "clean_lm_winner": "朝早く起きるのが辛い",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あしたのよていをおしえてください",
+   "romaji": "ashitanoyoteiwooshietekudasai",
+   "typo_kana": "あしたのよていをぉしえてください",
+   "expected": "明日の予定を教えてください",
+   "typo_kind": "ins",
+   "clean_lm_winner": "明日の予定を教えてください",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あしたはあめがふるかもしれません",
+   "romaji": "ashitahaamegafurukamoshiremasen",
+   "typo_kana": "あしあはあめがふるかもしれません",
+   "expected": "明日は雨が降るかもしれません",
+   "typo_kind": "del",
+   "clean_lm_winner": "明日は雨が降るかもしれません",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "あしたまでにしあげないといけない",
+   "romaji": "ashitamadenishiagenaitoikenai",
+   "typo_kana": "あしたまでにしあえないといけない",
+   "expected": "明日までに仕上げないといけない",
+   "typo_kind": "del",
+   "clean_lm_winner": "明日までに仕上げないといけない",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "あたまがいたいのでくすりをのんだ",
+   "romaji": "atamagaitainodekusuriwononda",
+   "typo_kana": "あたまがいたいのでおうすりをのんだ",
+   "expected": "頭が痛いので薬を飲んだ",
+   "typo_kind": "sub",
+   "clean_lm_winner": "頭が痛いので薬を飲んだ",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あたらしいくつをかいました",
+   "romaji": "atarashiikutsuwokaimashita",
+   "typo_kana": "あたらしいくすをかいました",
+   "expected": "新しい靴を買いました",
+   "typo_kind": "del",
+   "clean_lm_winner": "新しい靴を買いました",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "あたらしいぷろじぇくとがはじまる",
+   "romaji": "atarashiipurojilekutogahajimaru",
+   "typo_kana": "あたらしいぷろじぺくとがはじまる",
+   "expected": "新しいプロジェクトが始まる",
+   "typo_kind": "sub",
+   "clean_lm_winner": "新しいプロジェクトが始まる",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あついおちゃをください",
+   "romaji": "atsuiochawokudasai",
+   "typo_kana": "あついおちゃをくださう",
+   "expected": "熱いお茶をください",
+   "typo_kind": "sub",
+   "clean_lm_winner": "熱いお茶を下さい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "あとででんわします",
+   "romaji": "atodedenwashimasu",
+   "typo_kana": "とででんわします",
+   "expected": "後で電話します",
+   "typo_kind": "del",
+   "clean_lm_winner": "後で電話します",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "あのやまはたかくてきれいです",
+   "romaji": "anoyamahatakakutekireidesu",
+   "typo_kana": "あのやまはたいあくてきれいです",
+   "expected": "あの山は高くて綺麗です",
+   "typo_kind": "sub",
+   "clean_lm_winner": "あの山は高くてきれいです",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "いぬのさんぽにいってきます",
+   "romaji": "inunosanponiittekimasu",
+   "typo_kana": "いぬのさあんぽにいってきます",
+   "expected": "犬の散歩に行ってきます",
+   "typo_kind": "ins",
+   "clean_lm_winner": "犬の散歩に行ってきます",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "うんてんにはじゅうぶんきをつけて",
+   "romaji": "untennihajuubunkiwotsukete",
+   "typo_kana": "うんてにはじゅうぶんきをつけて",
+   "expected": "運転には十分気をつけて",
+   "typo_kind": "del",
+   "clean_lm_winner": "運転には十分気をつけて",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "うんどうのためにまいあさはしる",
+   "romaji": "undounotamenimaiasahashiru",
+   "typo_kana": "うんどうもためにまいあさはしる",
+   "expected": "運動のために毎朝走る",
+   "typo_kind": "sub",
+   "clean_lm_winner": "運動のために毎朝走る",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "えいがをみにいきませんか",
+   "romaji": "eigawominiikimasenka",
+   "typo_kana": "えいがをみにいきまぜんか",
+   "expected": "映画を見に行きませんか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "映画を見に行きませんか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "えいごのてすとがむずかしかった",
+   "romaji": "eigonotesutogamuzukashikatta",
+   "typo_kana": "えいごおてすとがむずかしかった",
+   "expected": "英語のテストが難しかった",
+   "typo_kind": "del",
+   "clean_lm_winner": "英語のテストが難しかった",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "おかねがたりないかもしれない",
+   "romaji": "okanegatarinaikamoshirenai",
+   "typo_kana": "おかねがたりないじゃもしれない",
+   "expected": "お金が足りないかもしれない",
+   "typo_kind": "sub",
+   "clean_lm_winner": "お金が足りないかもしれない",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "おさけはあまりのめません",
+   "romaji": "osakehaamarinomemasen",
+   "typo_kana": "そあけはあまりのめません",
+   "expected": "お酒はあまり飲めません",
+   "typo_kind": "trans",
+   "clean_lm_winner": "お酒はあまり飲めません",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "おふろのおゆがぬるいです",
+   "romaji": "ofuronooyuganuruidesu",
+   "typo_kana": "おふろのおゆがぬるいでさう",
+   "expected": "お風呂のお湯がぬるいです",
+   "typo_kind": "ins",
+   "clean_lm_winner": "お風呂のお湯がぬるいです",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "おんがくをききながらべんきょうする",
+   "romaji": "ongakuwokikinagarabenkyousuru",
+   "typo_kana": "おんがくをききながあべんきょうする",
+   "expected": "音楽を聞きながら勉強する",
+   "typo_kind": "del",
+   "clean_lm_winner": "音楽を聴きながら勉強する",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "かいぎのじかんをへんこうしたい",
+   "romaji": "kaiginojikanwohenkoushitai",
+   "typo_kana": "かいぎのじかんをへんこうしおたい",
+   "expected": "会議の時間を変更したい",
+   "typo_kind": "ins",
+   "clean_lm_winner": "会議の時間を変更したい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かいぎはじゅうじからはじまります",
+   "romaji": "kaigihajuujikarahajimarimasu",
+   "typo_kana": "かいぎはじゅうじょからはじまります",
+   "expected": "会議は十時から始まります",
+   "typo_kind": "sub",
+   "clean_lm_winner": "会議は10時から始まります",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かぎをかけたかどうかふあんです",
+   "romaji": "kagiwokaketakadoukafuandesu",
+   "typo_kana": "じゃぎをかけたかどうかふあんです",
+   "expected": "鍵をかけたかどうか不安です",
+   "typo_kind": "sub",
+   "clean_lm_winner": "鍵をかけたかどうか不安です",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かぜがつよくてかさがこわれた",
+   "romaji": "kazegatsuyokutekasagakowareta",
+   "typo_kana": "かぜがつよくてかあがこわれた",
+   "expected": "風が強くて傘が壊れた",
+   "typo_kind": "del",
+   "clean_lm_winner": "風が強くて傘が壊れた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かみをきりにびよういんへいく",
+   "romaji": "kamiwokirinibiyouinheiku",
+   "typo_kana": "かみをきりにぎよういんへいく",
+   "expected": "髪を切りに美容院へ行く",
+   "typo_kind": "sub",
+   "clean_lm_winner": "髪をきりに美容院へ行く",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かめらのれんずをふいてください",
+   "romaji": "kameranorenzuwofuitekudasai",
+   "typo_kana": "おあめらのれんずをふいてください",
+   "expected": "カメラのレンズを拭いてください",
+   "typo_kind": "sub",
+   "clean_lm_winner": "カメラのレンズを吹いてください",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "からだがだるくてねむい",
+   "romaji": "karadagadarukutenemui",
+   "typo_kana": "からだがだるくてんむい",
+   "expected": "体がだるくて眠い",
+   "typo_kind": "del",
+   "clean_lm_winner": "体がだるくて眠い",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "かれとはながいあいだともだちです",
+   "romaji": "karetohanagaiaidatomodachidesu",
+   "typo_kana": "かれとはながいあいだといもだちです",
+   "expected": "彼とは長い間友達です",
+   "typo_kind": "ins",
+   "clean_lm_winner": "彼とは長い間友達です",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かれはかのじょにあいにいった",
+   "romaji": "karehakanojoniainiitta",
+   "typo_kana": "おあれはかのじょにあいにいった",
+   "expected": "彼は彼女に会いに行った",
+   "typo_kind": "sub",
+   "clean_lm_winner": "彼は彼女に会いに行った",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "かわのながれがはやい",
+   "romaji": "kawanonagaregahayai",
+   "typo_kana": "かわのながえがはやい",
+   "expected": "川の流れが速い",
+   "typo_kind": "del",
+   "clean_lm_winner": "川の流れが早い",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "がっこうまでばすでいきます",
+   "romaji": "gakkoumadebasudeikimasu",
+   "typo_kana": "がっこうまでばすでいおいます",
+   "expected": "学校までバスで行きます",
+   "typo_kind": "sub",
+   "clean_lm_winner": "学校までバスで行きます",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "きっぷをなくしてしまった",
+   "romaji": "kippuwonakushiteshimatta",
+   "typo_kana": "きっぷをなくしてしんまった",
+   "expected": "切符をなくしてしまった",
+   "typo_kind": "ins",
+   "clean_lm_winner": "切符をなくしてしまった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "きのうはありがとうございました",
+   "romaji": "kinouhaarigatougozaimashita",
+   "typo_kana": "きんぅはありがとうございました",
+   "expected": "昨日はありがとうございました",
+   "typo_kind": "sub",
+   "clean_lm_winner": "昨日はありがとうございました",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "きょうはとてもあついですね",
+   "romaji": "kyouhatotemoatsuidesune",
+   "typo_kana": "きょうはとてみあついですね",
+   "expected": "今日はとても暑いですね",
+   "typo_kind": "sub",
+   "clean_lm_winner": "今日はとても暑いですね",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "きょうははやくかえります",
+   "romaji": "kyouhahayakukaerimasu",
+   "typo_kana": "きょうじゃはやくかえります",
+   "expected": "今日は早く帰ります",
+   "typo_kind": "sub",
+   "clean_lm_winner": "今日は早く帰ります",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ぎんこうでおかねをおろした",
+   "romaji": "ginkoudeokanewooroshita",
+   "typo_kana": "いんこうでおかねをおろした",
+   "expected": "銀行でお金を下ろした",
+   "typo_kind": "del",
+   "clean_lm_winner": "銀行でお金を下した",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "くるまのえんじんがかからない",
+   "romaji": "kurumanoenjingakakaranai",
+   "typo_kana": "くるまのえんじんがかからばい",
+   "expected": "車のエンジンがかからない",
+   "typo_kind": "sub",
+   "clean_lm_winner": "車のエンジンがかからない",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "くれじっとかーどはつかえますか",
+   "romaji": "kurejittoka-dohatsukaemasuka",
+   "typo_kana": "くれういっとかーどはつかえますか",
+   "expected": "クレジットカードは使えますか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "クレジットカードは使えますか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "こうえんでこどもがあそんでいる",
+   "romaji": "kouendekodomogaasondeiru",
+   "typo_kana": "こうえんでぉどもがあそんでいる",
+   "expected": "公園で子供が遊んでいる",
+   "typo_kind": "sub",
+   "clean_lm_winner": "公園で子供が遊んでいる",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "こうえんのしりょうをまとめた",
+   "romaji": "kouennoshiryouwomatometa",
+   "typo_kana": "こうえんんぽしりょうをまとめた",
+   "expected": "講演の資料をまとめた",
+   "typo_kind": "ins",
+   "clean_lm_winner": "公園の資料をまとめた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ここからあるいてじゅっぷんです",
+   "romaji": "kokokaraaruitejuppundesu",
+   "typo_kana": "ここからあういてじゅっぷんです",
+   "expected": "ここから歩いて十分です",
+   "typo_kind": "del",
+   "clean_lm_winner": "ここから歩いて10分です",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "このくつはすこしきついです",
+   "romaji": "konokutsuhasukoshikitsuidesu",
+   "typo_kana": "このくつじゃすこしきついです",
+   "expected": "この靴は少しきついです",
+   "typo_kind": "sub",
+   "clean_lm_winner": "この靴は少しきついです",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "このさいずはわたしにあいます",
+   "romaji": "konosaizuhawatashiniaimasu",
+   "typo_kana": "このさいずじゃわたしにあいます",
+   "expected": "このサイズは私に合います",
+   "typo_kind": "sub",
+   "clean_lm_winner": "このサイズは私に会います",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "このせーたーはいくらですか",
+   "romaji": "konose-ta-haikuradesuka",
+   "typo_kana": "このせーたーはいくえあですか",
+   "expected": "このセーターはいくらですか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "このセーターはいくらですか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "このほんはあついのでよむのがたいへんです",
+   "romaji": "konohonhaatsuinodeyomunogataihendesu",
+   "typo_kana": "このほなあついのでよむのがたいへんです",
+   "expected": "この本は厚いので読むのが大変です",
+   "typo_kind": "del",
+   "clean_lm_winner": "この本は熱いので読むのが大変です",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "このみせはあさくじにあきます",
+   "romaji": "konomisehaasakujiniakimasu",
+   "typo_kana": "このみえしゃあさくじにあきます",
+   "expected": "この店は朝九時に開きます",
+   "typo_kind": "trans",
+   "clean_lm_winner": "この店は朝9時に開きます",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "このみちはせまくてあぶない",
+   "romaji": "konomichihasemakuteabunai",
+   "typo_kana": "こんもいちはせまくてあぶない",
+   "expected": "この道は狭くて危ない",
+   "typo_kind": "trans",
+   "clean_lm_winner": "この道は狭くて危ない",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "こんしゅうまつはうみにいきます",
+   "romaji": "konshuumatsuhauminiikimasu",
+   "typo_kana": "こんしゅうまつはうみんじきます",
+   "expected": "今週末は海に行きます",
+   "typo_kind": "sub",
+   "clean_lm_winner": "今週末は海に行きます",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "こーひーをのむとめがさめる",
+   "romaji": "ko-hi-wonomutomegasameru",
+   "typo_kana": "こーひーをんこむとめがさめる",
+   "expected": "コーヒーを飲むと目が覚める",
+   "typo_kind": "ins",
+   "clean_lm_winner": "コーヒーを飲むと目が覚める",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "さいふをいえにわすれてきた",
+   "romaji": "saifuwoieniwasuretekita",
+   "typo_kana": "さいふをいえんじわすれてきた",
+   "expected": "財布を家に忘れてきた",
+   "typo_kind": "ins",
+   "clean_lm_winner": "財布を家に忘れてきた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "さっかーのせんしゅになりたい",
+   "romaji": "sakka-nosenshuninaritai",
+   "typo_kana": "さっかーのせんしゅんなりたい",
+   "expected": "サッカーの選手になりたい",
+   "typo_kind": "del",
+   "clean_lm_winner": "サッカーの選手になりたい",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "しごとのつかれがたまっている",
+   "romaji": "shigotonotsukaregatamatteiru",
+   "typo_kana": "しごとんとすかれがたまっている",
+   "expected": "仕事の疲れが溜まっている",
+   "typo_kind": "trans",
+   "clean_lm_winner": "仕事の疲れが溜まっている",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "しなものがそろっているみせだ",
+   "romaji": "shinamonogasorotteirumiseda",
+   "typo_kana": "あひなものがそろっているみせだ",
+   "expected": "品物が揃っている店だ",
+   "typo_kind": "sub",
+   "clean_lm_winner": "品物が揃っている店だ",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "しゃしんをとるのがしゅみです",
+   "romaji": "shashinwotorunogashumidesu",
+   "typo_kana": "しゃしんをとるのがしゅみえす",
+   "expected": "写真を撮るのが趣味です",
+   "typo_kind": "del",
+   "clean_lm_winner": "写真を撮るのが趣味です",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "しゅうでんにまにあいそうにない",
+   "romaji": "shuudennimaniaisouninai",
+   "typo_kana": "しゅうでんにまにいあそうにない",
+   "expected": "終電に間に合いそうにない",
+   "typo_kind": "trans",
+   "clean_lm_winner": "終電に間に合いそうにない",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "しゅくだいをわすれてしまった",
+   "romaji": "shukudaiwowasureteshimatta",
+   "typo_kana": "すくだいをわすれてしまった",
+   "expected": "宿題を忘れてしまった",
+   "typo_kind": "del",
+   "clean_lm_winner": "宿題を忘れてしまった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "しりょうをめーるでおくってください",
+   "romaji": "shiryouwome-rudeokuttekudasai",
+   "typo_kana": "しりょうをめーるでおくってくあさい",
+   "expected": "資料をメールで送ってください",
+   "typo_kind": "del",
+   "clean_lm_winner": "資料をメールで送ってください",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "しろいかみにかいてください",
+   "romaji": "shiroikaminikaitekudasai",
+   "typo_kana": "しろいかみにきてください",
+   "expected": "白い紙に書いてください",
+   "typo_kind": "del",
+   "clean_lm_winner": "白い髪に書いてください",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "しんごうがあかになったらとまる",
+   "romaji": "shingougaakaninattaratomaru",
+   "typo_kana": "しんごうがあかになったらごまる",
+   "expected": "信号が赤になったら止まる",
+   "typo_kind": "sub",
+   "clean_lm_winner": "信号が垢になったら止まる",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "じしんがあったらまずにげて",
+   "romaji": "jishingaattaramazunigete",
+   "typo_kana": "じしんがあったらまずにえて",
+   "expected": "地震があったらまず逃げて",
+   "typo_kind": "del",
+   "clean_lm_winner": "自信があったらまず逃げて",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "じてんしゃのたいやにくうきをいれた",
+   "romaji": "jitenshanotaiyanikuukiwoireta",
+   "typo_kana": "じてんしゃのたいやにくうきをりえた",
+   "expected": "自転車のタイヤに空気を入れた",
+   "typo_kind": "trans",
+   "clean_lm_winner": "自転車のタイヤに空気を入れた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "じょうしにほうこくしょをだした",
+   "romaji": "joushinihoukokushowodashita",
+   "typo_kana": "じょういしにほうこくしょをだした",
+   "expected": "上司に報告書を出した",
+   "typo_kind": "ins",
+   "clean_lm_winner": "上司に報告書を出した",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "すわるばしょがなかった",
+   "romaji": "suwarubashoganakatta",
+   "typo_kana": "すわるばしょがんかあった",
+   "expected": "座る場所がなかった",
+   "typo_kind": "trans",
+   "clean_lm_winner": "座る場所がなかった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "すーぱーでぎゅうにゅうをかってきて",
+   "romaji": "su-pa-degyuunyuuwokattekite",
+   "typo_kana": "すーぱーでぎゅうにゅうをおかってきて",
+   "expected": "スーパーで牛乳を買ってきて",
+   "typo_kind": "ins",
+   "clean_lm_winner": "スーパーで牛乳を買ってきて",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "せんせいにしつもんがあります",
+   "romaji": "senseinishitsumongaarimasu",
+   "typo_kana": "せんせいにしつもんがありなす",
+   "expected": "先生に質問があります",
+   "typo_kind": "sub",
+   "clean_lm_winner": "先生に質問があります",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "せんたくものがたまっている",
+   "romaji": "sentakumonogatamatteiru",
+   "typo_kana": "せにゃくものがたまっている",
+   "expected": "洗濯物が溜まっている",
+   "typo_kind": "sub",
+   "clean_lm_winner": "洗濯物が堪っている",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "そらがあおくてきもちがいい",
+   "romaji": "soragaaokutekimochigaii",
+   "typo_kana": "そらがおくてきもちがいい",
+   "expected": "空が青くて気持ちがいい",
+   "typo_kind": "del",
+   "clean_lm_winner": "空が青くて気持ちが良い",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "たいふうがちかづいているそうです",
+   "romaji": "taifuugachikaduiteirusoudesu",
+   "typo_kana": "たいふうがちかづいえいるそうです",
+   "expected": "台風が近づいているそうです",
+   "typo_kind": "del",
+   "clean_lm_winner": "台風が近づいているそうです",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "たくしーをよんでください",
+   "romaji": "takushi-woyondekudasai",
+   "typo_kana": "たくしーをよでください",
+   "expected": "タクシーを呼んでください",
+   "typo_kind": "del",
+   "clean_lm_winner": "タクシーを読んでください",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "たばこはすいません",
+   "romaji": "tabakohasuimasen",
+   "typo_kana": "たばこはあういません",
+   "expected": "タバコは吸いません",
+   "typo_kind": "sub",
+   "clean_lm_winner": "タバコはすいません",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "たんじょうびおめでとうございます",
+   "romaji": "tanjoubiomedetougozaimasu",
+   "typo_kana": "たんほうびおめでとうございます",
+   "expected": "誕生日おめでとうございます",
+   "typo_kind": "sub",
+   "clean_lm_winner": "誕生日おめでとうございます",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ちずをみながらあるいた",
+   "romaji": "chizuwominagaraaruita",
+   "typo_kana": "ちゅずをみながらあるいた",
+   "expected": "地図を見ながら歩いた",
+   "typo_kind": "sub",
+   "clean_lm_winner": "地図を見ながら歩いた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "つきがまるくてあかるい",
+   "romaji": "tsukigamarukuteakarui",
+   "typo_kana": "すきがまるくてあかるい",
+   "expected": "月が丸くて明るい",
+   "typo_kind": "del",
+   "clean_lm_winner": "月が丸くて明るい",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "つぎのえきでおります",
+   "romaji": "tsuginoekideorimasu",
+   "typo_kana": "つぎのえきでおるます",
+   "expected": "次の駅で降ります",
+   "typo_kind": "sub",
+   "clean_lm_winner": "次の駅で降ります",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "でんきをつけっぱなしにしないで",
+   "romaji": "denkiwotsukeppanashinishinaide",
+   "typo_kana": "でんきをつぇっぱなしにしないで",
+   "expected": "電気をつけっぱなしにしないで",
+   "typo_kind": "sub",
+   "clean_lm_winner": "電気をつけっぱなしにしないで",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "でんしゃがおくれているそうです",
+   "romaji": "denshagaokureteirusoudesu",
+   "typo_kana": "でんしゃがおくれているおうです",
+   "expected": "電車が遅れているそうです",
+   "typo_kind": "del",
+   "clean_lm_winner": "電車が遅れているそうです",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "でんしゃのなかでほんをよんだ",
+   "romaji": "denshanonakadehonwoyonda",
+   "typo_kana": "でんしゃのなかでひおんをよんだ",
+   "expected": "電車の中で本を読んだ",
+   "typo_kind": "ins",
+   "clean_lm_winner": "電車の中で本を読んだ",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "でんわばんごうをおしえてください",
+   "romaji": "denwabangouwooshietekudasai",
+   "typo_kana": "でねあばんごうをおしえてください",
+   "expected": "電話番号を教えてください",
+   "typo_kind": "sub",
+   "clean_lm_winner": "電話番号を教えてください",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "としょかんでほんをかりた",
+   "romaji": "toshokandehonwokarita",
+   "typo_kana": "としょあんでほんをかりた",
+   "expected": "図書館で本を借りた",
+   "typo_kind": "del",
+   "clean_lm_winner": "図書館で本を借りた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ともだちとこうえんであった",
+   "romaji": "tomodachitokouendeatta",
+   "typo_kana": "ともだちとこうえんであた",
+   "expected": "友達と公園で会った",
+   "typo_kind": "del",
+   "clean_lm_winner": "友達と公園で会った",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "とりがないているのがきこえる",
+   "romaji": "toriganaiteirunogakikoeru",
+   "typo_kana": "とりがないているおがきこえる",
+   "expected": "鳥が鳴いているのが聞こえる",
+   "typo_kind": "del",
+   "clean_lm_winner": "鳥が泣いているのが聞こえる",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "どあをしめるのをわすれた",
+   "romaji": "doawoshimerunowowasureta",
+   "typo_kana": "どあをしめるのっわすれた",
+   "expected": "ドアを閉めるのを忘れた",
+   "typo_kind": "del",
+   "clean_lm_winner": "ドアを占めるのを忘れた",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "なつやすみはりょこうにいきたい",
+   "romaji": "natsuyasumiharyokouniikitai",
+   "typo_kana": "なつやすみなりょこうにいきたい",
+   "expected": "夏休みは旅行に行きたい",
+   "typo_kind": "sub",
+   "clean_lm_winner": "夏休みは旅行に行きたい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "にほんごのべんきょうはたのしい",
+   "romaji": "nihongonobenkyouhatanoshii",
+   "typo_kana": "にほんごのべんきょゆはたのしい",
+   "expected": "日本語の勉強は楽しい",
+   "typo_kind": "ins",
+   "clean_lm_winner": "日本語の勉強は楽しい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "にもつがおもすぎてつかれた",
+   "romaji": "nimotsugaomosugitetsukareta",
+   "typo_kana": "にもつがおもすぎてたうかれた",
+   "expected": "荷物が重すぎて疲れた",
+   "typo_kind": "sub",
+   "clean_lm_winner": "荷物が重すぎて疲れた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "にもつをおくりたいのですが",
+   "romaji": "nimotsuwookuritainodesuga",
+   "typo_kana": "にもつをおくりたのですが",
+   "expected": "荷物を送りたいのですが",
+   "typo_kind": "del",
+   "clean_lm_winner": "荷物を送りたいのですが",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "にわのきがおおきくなった",
+   "romaji": "niwanokigaookikunatta",
+   "typo_kana": "にわのきがおおきおくなった",
+   "expected": "庭の木が大きくなった",
+   "typo_kind": "ins",
+   "clean_lm_winner": "庭の気が大きくなった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ねこがひなたぼっこをしている",
+   "romaji": "nekogahinatabokkowoshiteiru",
+   "typo_kana": "ねこがひあんたぼっこをしている",
+   "expected": "猫が日向ぼっこをしている",
+   "typo_kind": "trans",
+   "clean_lm_winner": "猫がひなたぼっこをしている",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "はしをつかってごはんをたべる",
+   "romaji": "hashiwotsukattegohanwotaberu",
+   "typo_kana": "はしをつまってごはんをたべる",
+   "expected": "箸を使ってご飯を食べる",
+   "typo_kind": "sub",
+   "clean_lm_winner": "箸を使ってご飯を食べる",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "はしをわたるときはきをつけて",
+   "romaji": "hashiwowatarutokihakiwotsukete",
+   "typo_kana": "はしをわあるときはきをつけて",
+   "expected": "橋を渡るときは気をつけて",
+   "typo_kind": "del",
+   "clean_lm_winner": "橋を渡るときは気をつけて",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "はなにみずをやるのをわすれた",
+   "romaji": "hananimizuwoyarunowowasureta",
+   "typo_kana": "はじゃにみずをやるのをわすれた",
+   "expected": "花に水をやるのを忘れた",
+   "typo_kind": "sub",
+   "clean_lm_winner": "花に水をやるのを忘れた",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "はやくおよげるようになりたい",
+   "romaji": "hayakuoyogeruyouninaritai",
+   "typo_kana": "はやくおよげるようにじゃりたい",
+   "expected": "速く泳げるようになりたい",
+   "typo_kind": "sub",
+   "clean_lm_winner": "早く泳げるようになりたい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ばすがなかなかこないね",
+   "romaji": "basuganakanakakonaine",
+   "typo_kana": "ばすがなかなかこあいね",
+   "expected": "バスがなかなか来ないね",
+   "typo_kind": "del",
+   "clean_lm_winner": "バスがなかなかこないね",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "ばんごはんはかれーにしよう",
+   "romaji": "bangohanhakare-nishiyou",
+   "typo_kana": "ばんごはんはかれーにひよう",
+   "expected": "晩ご飯はカレーにしよう",
+   "typo_kind": "del",
+   "clean_lm_winner": "晩御飯はカレーにしよう",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "ひこうきのちけっとをよやくした",
+   "romaji": "hikoukinochikettowoyoyakushita",
+   "typo_kana": "ひこおうきのちけっとをよやくした",
+   "expected": "飛行機のチケットを予約した",
+   "typo_kind": "ins",
+   "clean_lm_winner": "飛行機のチケットを予約した",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ひるごはんはなにがいいですか",
+   "romaji": "hirugohanhananigaiidesuka",
+   "typo_kana": "ひるごはんはなにがいいでえうか",
+   "expected": "昼ご飯は何がいいですか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "昼ご飯は何がいいですか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "びょういんでみてもらったほうがいい",
+   "romaji": "byouindemitemorattahougaii",
+   "typo_kana": "びょういんでみてもらったほうがい",
+   "expected": "病院で診てもらった方がいい",
+   "typo_kind": "del",
+   "clean_lm_winner": "病院でみてもらった方がいい",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "ふくろはひとつでだいじょうぶです",
+   "romaji": "fukurohahitotsudedaijoubudesu",
+   "typo_kana": "ふくろっはいとつでだいじょうぶです",
+   "expected": "袋は一つで大丈夫です",
+   "typo_kind": "trans",
+   "clean_lm_winner": "袋は一つで大丈夫です",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ぷれぜんとをえらぶのにまよった",
+   "romaji": "purezentowoerabunonimayotta",
+   "typo_kana": "ぷれぜんとをえらぶのにまとった",
+   "expected": "プレゼントを選ぶのに迷った",
+   "typo_kind": "sub",
+   "clean_lm_winner": "プレゼントを選ぶのに迷った",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ぷーるでおよぐのがすきです",
+   "romaji": "pu-rudeoyogunogasukidesu",
+   "typo_kana": "うーるでおよぐのがすきです",
+   "expected": "プールで泳ぐのが好きです",
+   "typo_kind": "del",
+   "clean_lm_winner": "プールで泳ぐのが好きです",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "へやのそうじをしないといけない",
+   "romaji": "heyanosoujiwoshinaitoikenai",
+   "typo_kana": "ひゃのそうじをしないといけない",
+   "expected": "部屋の掃除をしないといけない",
+   "typo_kind": "del",
+   "clean_lm_winner": "部屋の掃除をしないといけない",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "へんじがおそくなってすみません",
+   "romaji": "henjigaosokunattesumimasen",
+   "typo_kana": "へんにがおそくなってすみません",
+   "expected": "返事が遅くなってすみません",
+   "typo_kind": "sub",
+   "clean_lm_winner": "返事が遅くなってすみません",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ほしがよくみえるばしょですね",
+   "romaji": "hoshigayokumierubashodesune",
+   "typo_kana": "ほしがよくみえるばせほですね",
+   "expected": "星がよく見える場所ですね",
+   "typo_kind": "ins",
+   "clean_lm_winner": "星がよく見える場所ですね",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ほてるはえきのちかくがいい",
+   "romaji": "hoteruhaekinochikakugaii",
+   "typo_kana": "ほてるはえきおんちかくがいい",
+   "expected": "ホテルは駅の近くがいい",
+   "typo_kind": "trans",
+   "clean_lm_winner": "ホテルは駅の近くがいい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "またあしたあいましょう",
+   "romaji": "mataashitaaimashou",
+   "typo_kana": "またあひたあいましょう",
+   "expected": "また明日会いましょう",
+   "typo_kind": "del",
+   "clean_lm_winner": "また明日会いましょう",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "まちがえてぎゃくほうこうにのった",
+   "romaji": "machigaetegyakuhoukouninotta",
+   "typo_kana": "まちがええぎゃくほうこうにのった",
+   "expected": "間違えて逆方向に乗った",
+   "typo_kind": "del",
+   "clean_lm_winner": "間違えて逆方向に乗った",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "まどをあけてください",
+   "romaji": "madowoaketekudasai",
+   "typo_kana": "などをあけてください",
+   "expected": "窓を開けてください",
+   "typo_kind": "sub",
+   "clean_lm_winner": "窓を開けて下さい",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "むりをしないでやすんでください",
+   "romaji": "muriwoshinaideyasundekudasai",
+   "typo_kana": "むりをしないでやすんでくあさい",
+   "expected": "無理をしないで休んでください",
+   "typo_kind": "del",
+   "clean_lm_winner": "無理をしないで休んでください",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "めざましをかけるのをわすれた",
+   "romaji": "mezamashiwokakerunowowasureta",
+   "typo_kana": "めざましをかけうのをわすれた",
+   "expected": "目覚ましをかけるのを忘れた",
+   "typo_kind": "del",
+   "clean_lm_winner": "目覚ましをかけるのを忘れた",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "めーるをかくにんしてください",
+   "romaji": "me-ruwokakuninshitekudasai",
+   "typo_kana": "めーるをかくにんしてくだえさい",
+   "expected": "メールを確認してください",
+   "typo_kind": "ins",
+   "clean_lm_winner": "メールを確認してください",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "もうすこしやすいのはありますか",
+   "romaji": "mousukoshiyasuinohaarimasuka",
+   "typo_kana": "もうすこしやすいおはありますか",
+   "expected": "もう少し安いのはありますか",
+   "typo_kind": "del",
+   "clean_lm_winner": "もう少し安いのはありますか",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "やきゅうのしあいをてれびでみた",
+   "romaji": "yakyuunoshiaiwoterebidemita",
+   "typo_kana": "やきゅうのしあおをてれびでみた",
+   "expected": "野球の試合をテレビで見た",
+   "typo_kind": "sub",
+   "clean_lm_winner": "野球の試合をテレビで見た",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ゆうびんきょくはどこですか",
+   "romaji": "yuubinkyokuhadokodesuka",
+   "typo_kana": "ゆうびんきょくはそこですか",
+   "expected": "郵便局はどこですか",
+   "typo_kind": "sub",
+   "clean_lm_winner": "郵便局はどこですか",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ゆうべはよくねむれなかった",
+   "romaji": "yuubehayokunemurenakatta",
+   "typo_kana": "ゆうべはよくんめうれなかった",
+   "expected": "昨夜はよく眠れなかった",
+   "typo_kind": "trans",
+   "clean_lm_winner": "昨夜はよく眠れなかった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ゆうやけがとてもきれいだった",
+   "romaji": "yuuyakegatotemokireidatta",
+   "typo_kana": "ゆうやけがとてもきれいさった",
+   "expected": "夕焼けがとても綺麗だった",
+   "typo_kind": "sub",
+   "clean_lm_winner": "夕焼けがとても綺麗だった",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "ゆきがふったらどうしよう",
+   "romaji": "yukigafuttaradoushiyou",
+   "typo_kana": "ゆきがふったらどうひよう",
+   "expected": "雪が降ったらどうしよう",
+   "typo_kind": "del",
+   "clean_lm_winner": "雪が降ったらどうしよう",
+   "true_kana_in_variants": false
+  },
+  {
+   "kana": "らいしゅうのげつようびはやすみです",
+   "romaji": "raishuunogetsuyoubihayasumidesu",
+   "typo_kana": "らいしゅうのげつようびはやすにです",
+   "expected": "来週の月曜日は休みです",
+   "typo_kind": "sub",
+   "clean_lm_winner": "来週の月曜日は休みです",
+   "true_kana_in_variants": true
+  },
+  {
+   "kana": "れしーとはいりません",
+   "romaji": "reshi-tohairimasen",
+   "typo_kana": "れしーとはいろません",
+   "expected": "レシートはいりません",
+   "typo_kind": "sub",
+   "clean_lm_winner": "レシートはいりません",
+   "true_kana_in_variants": true
+  }
+ ]
+}
