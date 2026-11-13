@@ -602,11 +602,15 @@ final class KeyboardViewController: UIInputViewController {
         emojiScroll.setContentOffset(.zero, animated: false)
     }
     private func insertEmoji(_ emoji: String) {
+        // 絵文字は連続して入れることが多いので、挿入してもパネルは閉じない
+        // （閉じるのは × ボタンだけ）。「最近」タブでは打った絵文字が
+        // 先頭に来るようグリッドをその場で更新する。
         syncHostChange()
         commitCurrent()
         editor.insert(emoji)
         recentEmojiStore.record(emoji)
         pendingAutocorrectUndo = nil
+        if emojiCategoryIndex == 0 { rebuildEmojiGrid() }
     }
     private func rebuildClipboardRows() {
         for arranged in clipboardStack.arrangedSubviews {
