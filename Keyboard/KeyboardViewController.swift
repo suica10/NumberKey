@@ -39,6 +39,13 @@ final class KeyboardViewController: UIInputViewController {
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
     private let clipboardStore = ClipboardHistoryStore()
+    private lazy var englishLexicon = EnglishLexicon.loadBundled()
+    private var englishSuggestions: [String] = []
+    private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
+    private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
+    private var showsCandidateStrip: Bool {
+        isJapanese ? !composition.isEmpty : (!symbols && !englishSuggestions.isEmpty)
+    }
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
     private let capturePanel = UIView()
@@ -232,7 +239,7 @@ final class KeyboardViewController: UIInputViewController {
         let width = view.bounds.width
         guard width > 0 else { return }
         let keysHeight = canvas.preferredHeight(width: width)
-        let candidateHeight: CGFloat = isJapanese && !composition.isEmpty ? 34 : 0
+        let candidateHeight: CGFloat = showsCandidateStrip ? 34 : 0
         // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
         var capturePanelHeight: CGFloat = 0
@@ -558,6 +565,7 @@ final class KeyboardViewController: UIInputViewController {
         rebuildCanvas()
     }
     private func handle(_ action: KeyboardAction) {
+        if action != .delete { pendingAutocorrectUndo = nil }
         syncHostChange()
         switch action {
         case .shift:
@@ -584,6 +592,9 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func insert(_ text: String) {
         syncHostChange()
+        if !isJapanese, !symbols, composition.isEmpty, text.count == 1, ".?!,".contains(text) {
+            autocorrectEnglishWord(delimiter: text)
+        }
         let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
         let isRomanInput = roman && !symbols
         if isJapanese && (isRomanInput || !composition.isEmpty) {
@@ -598,6 +609,7 @@ final class KeyboardViewController: UIInputViewController {
             editor.insert(shifted && !isJapanese ? text.uppercased() : committedText)
         }
         if shifted && !capsLocked { shifted = false; canvas.updateShift(false, caps: false) }
+        if !isJapanese, composition.isEmpty { renderState() }
     }
     private func scheduleConversion() {
         revision += 1
@@ -633,20 +645,22 @@ final class KeyboardViewController: UIInputViewController {
         return kana == katakana ? [kana] : [kana, katakana]
     }
     private func renderState(updateMarked: Bool = true) {
+        if !isJapanese { refreshEnglishSuggestions() }
         if updateMarked {
             let display = selected.flatMap { candidates.indices.contains($0) ? candidates[$0] : nil } ?? composition.convertTarget
             let caret = selected == nil ? String(display.prefix(composition.convertTargetCursorPosition)).utf16.count : display.utf16.count
             editor.show(display, caret: caret)
         }
         canvas.setComposing(!composition.isEmpty)
-        let shouldHideCandidates = !isJapanese || composition.isEmpty
+        let shouldHideCandidates = !showsCandidateStrip
         if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
-        while candidateKeys.count > candidates.count {
+        let stripCount = isJapanese ? candidates.count : englishSuggestions.count
+        while candidateKeys.count > stripCount {
             let key = candidateKeys.removeLast()
             candidateStack.removeArrangedSubview(key)
             key.removeFromSuperview()
         }
-        while candidateKeys.count < candidates.count {
+        while candidateKeys.count < stripCount {
             let key = CandidateKey(type: .system)
             key.titleLabel?.font = .systemFont(ofSize: 17)
             key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
@@ -663,6 +677,22 @@ final class KeyboardViewController: UIInputViewController {
         }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
+            guard isJapanese else {
+                let value = englishSuggestions[index]
+                let title = applyingCase(of: currentEnglishWord(), to: value)
+                if key.renderedValue != value || key.title(for: .normal) != title {
+                    key.setTitle(title, for: .normal)
+                    key.accessibilityIdentifier = "candidate." + value
+                    key.renderedValue = value
+                }
+                if key.isSelectedCandidate {
+                    key.backgroundColor = .clear
+                    key.isSelectedCandidate = false
+                }
+                key.onSelect = { [weak self] in self?.acceptEnglishSuggestion(value) }
+                key.actionRevision = displayedRevision
+                continue
+            }
             let value = candidates[index]
             let valueChanged = key.renderedValue != value
             if valueChanged {
@@ -688,8 +718,76 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
     }
+    // MARK: - 英語の補完・自動修正
+
+    /// カーソル直前の英単語（英字と内部アポストロフィの連続）。
+    private func currentEnglishWord() -> String {
+        guard let before = activeDocument.before else { return "" }
+        var word = ""
+        for character in before.reversed() {
+            if character.isLetter || character == "'" { word.append(character) } else { break }
+        }
+        return String(word.reversed())
+    }
+    private func refreshEnglishSuggestions() {
+        guard !isJapanese, !symbols, composition.isEmpty, !isCapturing else { englishSuggestions = []; return }
+        let typed = currentEnglishWord()
+        guard typed.count >= 2, typed.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "'") }),
+              let lexicon = englishLexicon else { englishSuggestions = []; return }
+        englishSuggestions = lexicon.suggestions(for: typed.lowercased())
+    }
+    private func applyingCase(of typed: String, to suggestion: String) -> String {
+        if typed.count > 1, typed == typed.uppercased(), typed != typed.lowercased() {
+            return suggestion.uppercased()
+        }
+        if let first = typed.first, first.isUppercase {
+            return suggestion.prefix(1).uppercased() + String(suggestion.dropFirst())
+        }
+        return suggestion
+    }
+    private func acceptEnglishSuggestion(_ value: String) {
+        let typed = currentEnglishWord()
+        guard !typed.isEmpty else { return }
+        syncHostChange()
+        for _ in 0..<typed.count { editor.deleteBackward() }
+        editor.insert(applyingCase(of: typed, to: value) + " ")
+        pendingAutocorrectUndo = nil
+        renderState()
+    }
+    /// 確信できる場合だけ入力中単語を修正する。delimiter は確定に使った区切り文字（取り消し判定用）。
+    @discardableResult
+    private func autocorrectEnglishWord(delimiter: String) -> Bool {
+        guard !symbols, let lexicon = englishLexicon else { return false }
+        let typed = currentEnglishWord()
+        guard typed.count >= 3, typed.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "'") }),
+              let correction = lexicon.autocorrect(for: typed.lowercased()) else { return false }
+        for _ in 0..<typed.count { editor.deleteBackward() }
+        let fixed = applyingCase(of: typed, to: correction)
+        editor.insert(fixed)
+        pendingAutocorrectUndo = (original: typed, corrected: fixed, delimiter: delimiter)
+        return true
+    }
+    private func englishSpace() {
+        pendingAutocorrectUndo = nil
+        autocorrectEnglishWord(delimiter: " ")
+        editor.insert(" ")
+        renderState()
+    }
+    /// 自動修正直後のバックスペースは、修正前の単語に戻す（iOS 純正と同じ作法）。
+    private func undoEnglishAutocorrectIfApplicable() -> Bool {
+        guard let undo = pendingAutocorrectUndo else { return false }
+        pendingAutocorrectUndo = nil
+        let suffix = undo.corrected + undo.delimiter
+        guard let before = activeDocument.before, before.hasSuffix(suffix) else { return false }
+        for _ in 0..<suffix.count { editor.deleteBackward() }
+        editor.insert(undo.original)
+        return true
+    }
     private func space() {
-        guard !composition.isEmpty else { editor.insert(" "); return }
+        guard !composition.isEmpty else {
+            if isJapanese || symbols { editor.insert(" ") } else { englishSpace() }
+            return
+        }
         guard conversionReady else { waitingSpaceCount += 1; return }
         guard !candidates.isEmpty else { return }
         selected = selected.map { ($0 + 1) % candidates.count } ?? 0
@@ -719,7 +817,11 @@ final class KeyboardViewController: UIInputViewController {
         if isViewLoaded { renderState(updateMarked: false) }
     }
     private func backspace() {
-        if composition.isEmpty { editor.deleteBackward() }
+        if composition.isEmpty {
+            if undoEnglishAutocorrectIfApplicable() { renderState(); return }
+            editor.deleteBackward()
+            if !isJapanese { renderState() }
+        }
         else if selected != nil { selected = nil; renderState() }
         else { composition.deleteBackwardFromCursorPosition(count: 1); scheduleConversion() }
     }
