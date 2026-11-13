@@ -1,0 +1,5 @@
+# Training data and model weights are large and reproducible — never commit.
+corpus.txt
+*.bz2
+*.pt
+__pycache__/

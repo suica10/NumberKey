@@ -1,0 +1,8 @@
+{
+  "params": 4028015,
+  "vocab": 2287,
+  "holdout_loss": 2.6000804901123047,
+  "perplexity": 13.464821776402816,
+  "sentences": 59000,
+  "epochs": 3
+}
