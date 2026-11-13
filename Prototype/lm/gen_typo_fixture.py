@@ -146,14 +146,22 @@ def edits(roma: str):
         dels.append(roma[:i] + roma[i + 1:])
         if i + 1 < len(roma):
             trans.append(roma[:i] + roma[i + 1] + roma[i] + roma[i + 2:])
-        for a in ADJ.get(ch, ""):
-            inss.append(roma[:i] + a + roma[i:])
-    for a in ADJ.get(roma[-1], "") if roma else "":
-        inss.append(roma + a)
+    # Insertions: at each gap, the missed key could sit next to either
+    # neighbouring key, so propose letters adjacent to both. (The first
+    # version only used the following key's neighbours, which made most
+    # deletion typos unrecoverable in principle.)
+    for gap in range(len(roma) + 1):
+        letters = set()
+        if gap > 0:
+            letters |= set(ADJ.get(roma[gap - 1], ""))
+        if gap < len(roma):
+            letters |= set(ADJ.get(roma[gap], ""))
+        for a in sorted(letters):
+            inss.append(roma[:gap] + a + roma[gap:])
     return subs, dels, trans, inss
 
 
-def variants_of(roma: str, cap: int, rng: random.Random):
+def all_variants(roma: str):
     subs, dels, trans, inss = edits(roma)
     kanas = set()
     for v in subs + dels + trans + inss:
@@ -161,7 +169,11 @@ def variants_of(roma: str, cap: int, rng: random.Random):
         if k:
             kanas.add(k)
     kanas.discard(romaji_to_kana(roma))
-    out = sorted(kanas)
+    return sorted(kanas)
+
+
+def variants_of(roma: str, cap: int, rng: random.Random):
+    out = all_variants(roma)
     if len(out) > cap:
         rng.shuffle(out)
         out = out[:cap]
@@ -209,6 +221,10 @@ def main():
             "typo_kana": typo_kana, "typo_kind": typo_kind,
             "variants": variants, "clean_variants": clean_variants,
             "true_kana_in_variants": kana in variants,
+            # Generation recall without the runtime cap: can the edit model
+            # express the fix at all? (Deletions often cannot: the dropped
+            # letter is not adjacent to either neighbour of the gap.)
+            "true_kana_in_variants_uncapped": kana in all_variants(typo_roma),
         })
     (PROTO / "typo_fixture.json").write_text(
         json.dumps(fixture, ensure_ascii=False, indent=1), encoding="utf-8")
