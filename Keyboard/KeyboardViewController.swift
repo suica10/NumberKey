@@ -42,6 +42,9 @@ final class KeyboardViewController: UIInputViewController {
     private var englishLexicon: EnglishLexicon?
     private var englishSuggestions: [String] = []
     private var englishExtraValues: Set<String> = []
+    private let dictionaryStore = DictionaryPackStore()
+    private let dictionaryLibrary = DictionaryPackLibrary()
+    private var packExtraValues: Set<String> = []
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
     private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
     private var showsCandidateStrip: Bool {
@@ -517,7 +520,7 @@ final class KeyboardViewController: UIInputViewController {
     private func rebuildEmojiCategories() {
         emojiCategoryButtons.forEach { $0.removeFromSuperview() }
         emojiCategoryButtons = []
-        for (index, name) in (["最近"] + emojiCategories.map { $0.name }).enumerated() {
+        for (index, name) in (["最近"] + emojiCategories.map { $0.name } + ["辞書"]).enumerated() {
             let button = UIButton(type: .system)
             button.setTitle(name, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 14, weight: index == emojiCategoryIndex ? .bold : .regular)
@@ -532,7 +535,13 @@ final class KeyboardViewController: UIInputViewController {
             emojiCategoryButtons.append(button)
         }
     }
+    /// 絵文字カテゴリの末尾に足した「辞書」タブのインデックス。
+    private var dictionaryTabIndex: Int { emojiCategories.count + 1 }
     private func rebuildEmojiGrid() {
+        if emojiCategoryIndex == dictionaryTabIndex {
+            rebuildDictionaryRows()
+            return
+        }
         emojiStack.arrangedSubviews.forEach { emojiStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         let emojis = emojiCategoryIndex == 0 ? recentEmojiStore.items
             : (emojiCategories.indices.contains(emojiCategoryIndex - 1) ? emojiCategories[emojiCategoryIndex - 1].emojis : [])
@@ -561,6 +570,31 @@ final class KeyboardViewController: UIInputViewController {
             }
             for _ in slice.count..<columns { row.addArrangedSubview(UIView()) }
             emojiStack.addArrangedSubview(row)
+        }
+        emojiScroll.setContentOffset(.zero, animated: false)
+    }
+    /// 「辞書」タブの中身。辞書パックの ON/OFF を切り替える。
+    /// OFF のパックはデータ自体を読み込まない (DictionaryPackLibrary 参照)。
+    private func rebuildDictionaryRows() {
+        emojiStack.arrangedSubviews.forEach { emojiStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        let note = UILabel()
+        note.text = "辞書パック（タップで ON / OFF）"
+        note.font = .systemFont(ofSize: 14)
+        note.textColor = .secondaryLabel
+        emojiStack.addArrangedSubview(note)
+        for id in DictionaryPackID.allCases {
+            let enabled = dictionaryStore.isEnabled(id)
+            let button = UIButton(type: .system)
+            button.setTitle("\(id.displayName)　\(enabled ? "● ON" : "○ OFF")", for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 17)
+            button.contentHorizontalAlignment = .left
+            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            button.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.dictionaryStore.setEnabled(id, !enabled)
+                self.rebuildDictionaryRows()
+            }, for: .touchUpInside)
+            emojiStack.addArrangedSubview(button)
         }
         emojiScroll.setContentOffset(.zero, animated: false)
     }
@@ -829,8 +863,8 @@ final class KeyboardViewController: UIInputViewController {
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
         // 残したまま新しい変換結果を待つ（空のときだけ基本候補で埋める）。
-        if snapshot.isEmpty { candidates = []; englishExtraValues = [] }
-        else if candidates.isEmpty { candidates = insertEnglishExtras(baseCandidates(), raw: rawRomaji(of: snapshot)) }
+        if snapshot.isEmpty { candidates = []; englishExtraValues = []; packExtraValues = [] }
+        else if candidates.isEmpty { candidates = insertPackExtras(insertEnglishExtras(baseCandidates(), raw: rawRomaji(of: snapshot)), kana: snapshot.convertTarget) }
         conversionTask?.cancel()
         renderState()
         guard !snapshot.isEmpty else { return }
@@ -844,7 +878,8 @@ final class KeyboardViewController: UIInputViewController {
             guard self.revision == requestRevision else { return }
             var seen = Set<String>()
             let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
-            let newCandidates = Array(self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot)).prefix(30))
+            let withEnglish = self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot))
+            let newCandidates = Array(self.insertPackExtras(withEnglish, kana: snapshot.convertTarget).prefix(30))
             let candidatesChanged = newCandidates != self.candidates
             if candidatesChanged { self.candidates = newCandidates }
             self.conversionReady = true
@@ -878,6 +913,19 @@ final class KeyboardViewController: UIInputViewController {
         let position = min(lexicon.contains(raw) && raw.count >= 3 ? 1 : 2, merged.count)
         merged.insert(contentsOf: extras, at: position)
         return merged
+    }
+    /// 辞書パックの候補を候補列の末尾に差し込む (通常辞書より低優先)。
+    /// 読みがかな文字列と完全一致した表記だけを出す (部分一致は誤爆する)。
+    /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない。
+    private func insertPackExtras(_ list: [String], kana: String) -> [String] {
+        guard isJapanese else { packExtraValues = []; return list }
+        let extras = dictionaryLibrary.surfaces(forKana: kana, store: dictionaryStore).filter { !list.contains($0) }
+        packExtraValues = Set(extras)
+        return list + extras
+    }
+    /// 変換学習に回してよい候補か。英字そのまま候補と辞書パック候補は回さない。
+    private func shouldLearn(_ value: String) -> Bool {
+        !englishExtraValues.contains(value) && !packExtraValues.contains(value)
     }
     private func baseCandidates() -> [String] {
         guard !composition.isEmpty else { return [] }
@@ -953,7 +1001,7 @@ final class KeyboardViewController: UIInputViewController {
                     guard self.conversionReady else { return }
                     self.syncHostChange()
                     guard self.revision == displayedRevision else { return }
-                    self.commit(value, learn: !self.englishExtraValues.contains(value))
+                    self.commit(value, learn: self.shouldLearn(value))
                 }
                 key.actionRevision = displayedRevision
             }
@@ -984,7 +1032,12 @@ final class KeyboardViewController: UIInputViewController {
         let typed = currentEnglishWord()
         guard typed.count >= 2, typed.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "'") }),
               let lexicon = englishLexicon else { englishSuggestions = []; return }
-        englishSuggestions = lexicon.suggestions(for: typed.lowercased())
+        var merged = lexicon.suggestions(for: typed.lowercased())
+        // 辞書パックの英数字パターン (そのまま型) も補完の末尾に足す。
+        for extra in dictionaryLibrary.patternCompletions(forTyped: typed, store: dictionaryStore) where !merged.contains(extra) {
+            merged.append(extra)
+        }
+        englishSuggestions = Array(merged.prefix(10))
     }
     private func applyingCase(of typed: String, to suggestion: String) -> String {
         if typed.count > 1, typed == typed.uppercased(), typed != typed.lowercased() {
@@ -1046,7 +1099,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func commitCurrent() {
         guard !composition.isEmpty else { return }
-        if let selected, candidates.indices.contains(selected) { commit(candidates[selected], learn: !englishExtraValues.contains(candidates[selected])) }
+        if let selected, candidates.indices.contains(selected) { commit(candidates[selected], learn: shouldLearn(candidates[selected])) }
         else { commitRaw() }
     }
     private func commitRaw() {
