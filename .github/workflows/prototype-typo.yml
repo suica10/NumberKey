@@ -1,0 +1,38 @@
+name: Prototype typo-correction candidates
+
+# Measurement harness for the typo-correction prototype: produces
+# typo_dump.json (the app's candidate lists for the typo'd input and all
+# its 1-edit variants, per Prototype/typo_fixture.json) as an artifact for
+# the offline scorer in Prototype/lm/typo_eval.py.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prototype-typo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dump:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare pinned converter and dictionaries
+        run: bash scripts/bootstrap.sh
+      - name: Dump candidate lists for typo fixture
+        env:
+          TYPO_FIXTURE_JSON: ${{ github.workspace }}/Prototype/typo_fixture.json
+          PROTO_DUMP_DIR: ${{ github.workspace }}/build/proto
+        run: swift test --configuration release --filter TypoDumpTests
+      - name: Upload typo_dump.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typo-dump
+          path: build/proto/typo_dump.json
+          if-no-files-found: error
