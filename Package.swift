@@ -14,9 +14,15 @@ let package = Package(
             exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "Info.plist"],
             sources: ["ConversionService.swift"]
         ),
+        .target(
+            name: "PhraseStore",
+            path: "Keyboard",
+            exclude: ["BufferDocument.swift", "ConversionService.swift", "KeyboardCanvas.swift", "KeyboardSettings.swift", "KeyboardViewController.swift", "MarkedTextSession.swift", "Info.plist", "NumberKeyKeyboard.entitlements"],
+            sources: ["PhraseStore.swift"]
+        ),
         .testTarget(
             name: "ConversionTests",
-            dependencies: ["KeyboardConversion", .product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter")],
+            dependencies: ["KeyboardConversion", "PhraseStore", .product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter")],
             path: "Tests"
         )
     ],

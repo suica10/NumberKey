@@ -36,6 +36,13 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStack = UIStackView()
     private var candidateKeys: [CandidateKey] = []
     private var candidateStyleIsLight: Bool?
+    // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
+    private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
+    private var captureDocument: BufferDocument?
+    private var isCapturing: Bool { captureDocument != nil }
+    private let captureBar = UIView()
+    private let captureStack = UIStackView()
+    private let captureLabel = UILabel()
     private var isJapanese: Bool { settings.japanese }
 
     override func viewDidLoad() {
@@ -53,6 +60,33 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.topAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.topAnchor),
             candidateStack.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
             candidateStack.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor)
+        ])
+        captureBar.isHidden = true
+        view.addSubview(captureBar)
+        captureStack.axis = .horizontal
+        captureStack.spacing = 8
+        captureStack.alignment = .center
+        captureStack.translatesAutoresizingMaskIntoConstraints = false
+        captureLabel.font = .systemFont(ofSize: 17)
+        captureLabel.lineBreakMode = .byTruncatingHead
+        captureLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let saveButton = UIButton(type: .system)
+        saveButton.setTitle("保存", for: .normal)
+        saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        saveButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: true) }, for: .touchUpInside)
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("取消", for: .normal)
+        cancelButton.titleLabel?.font = .systemFont(ofSize: 17)
+        cancelButton.addAction(UIAction { [weak self] _ in self?.endCapture(save: false) }, for: .touchUpInside)
+        captureStack.addArrangedSubview(captureLabel)
+        captureStack.addArrangedSubview(saveButton)
+        captureStack.addArrangedSubview(cancelButton)
+        captureBar.addSubview(captureStack)
+        NSLayoutConstraint.activate([
+            captureStack.leadingAnchor.constraint(equalTo: captureBar.leadingAnchor, constant: 6),
+            captureStack.trailingAnchor.constraint(equalTo: captureBar.trailingAnchor, constant: -6),
+            captureStack.topAnchor.constraint(equalTo: captureBar.topAnchor),
+            captureStack.bottomAnchor.constraint(equalTo: captureBar.bottomAnchor)
         ])
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
@@ -92,6 +126,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if isCapturing { endCapture(save: false) }
         stopDelete()
         syncHostChange(); commitCurrent()
         editor.finish()
@@ -101,12 +136,15 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
         guard width > 0 else { return }
+        let captureHeight: CGFloat = isCapturing ? 34 : 0
         let candidateHeight: CGFloat = isJapanese && !composition.isEmpty ? 34 : 0
+        captureBar.isHidden = !isCapturing
+        captureBar.frame = CGRect(x: 0, y: 0, width: width, height: captureHeight)
         candidateScroll.isHidden = candidateHeight == 0
-        candidateScroll.frame = CGRect(x: 0, y: 0, width: width, height: candidateHeight)
+        candidateScroll.frame = CGRect(x: 0, y: captureHeight, width: width, height: candidateHeight)
         let keysHeight = canvas.preferredHeight(width: width)
-        canvas.frame = CGRect(x: 0, y: candidateHeight, width: width, height: keysHeight)
-        let height = candidateHeight + keysHeight + view.safeAreaInsets.bottom
+        canvas.frame = CGRect(x: 0, y: captureHeight + candidateHeight, width: width, height: keysHeight)
+        let height = captureHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
     }
     override func textDidChange(_ textInput: UITextInput?) {
@@ -147,17 +185,86 @@ final class KeyboardViewController: UIInputViewController {
     private func updateSpaceMenu(_ button: UIButton) {
         let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
         let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
-        let presetActions = settings.snapshot.phrases.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { phrase in
+        phraseStore.reload()
+        let phrases = phraseStore.phrases
+        let presetActions = phrases.map { phrase in
             UIAction(title: phrase) { [weak self] _ in self?.insertPhrase(phrase) }
         }
-        let phrases = presetActions.isEmpty
-            ? [UIAction(title: "アプリで定型文を登録", attributes: .disabled) { _ in }]
+        let phraseGroup: [UIMenuElement] = presetActions.isEmpty
+            ? [UIAction(title: "定型文はまだありません", attributes: .disabled) { _ in }]
             : presetActions
+        let addAction = UIAction(title: "定型文を追加", image: UIImage(systemName: "plus"), attributes: isCapturing ? .disabled : []) { [weak self] _ in self?.beginCapture() }
+        var manageChildren: [UIMenuElement] = [addAction]
+        if !phrases.isEmpty {
+            let deleteActions = phrases.enumerated().map { index, phrase in
+                UIAction(title: phrase, image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                    self?.phraseStore.remove(at: index)
+                }
+            }
+            manageChildren.append(UIMenu(title: "定型文を削除", image: UIImage(systemName: "trash"), children: deleteActions))
+        }
         button.menu = UIMenu(children: [
             UIMenu(options: .displayInline, children: [japanese, english]),
-            UIMenu(options: .displayInline, children: phrases)
+            UIMenu(options: .displayInline, children: phraseGroup),
+            UIMenu(options: .displayInline, children: manageChildren)
         ])
         button.showsMenuAsPrimaryAction = false
+    }
+    /// 旧実装（共有 LayoutSettings）から定型文を一度だけ引き継ぐための読み出し。
+    private static func legacySharedPhrases() -> [String]? {
+        struct LegacyLayout: Decodable { var phrases: [String]? }
+        var sources: [UserDefaults] = []
+        if let suite = UserDefaults(suiteName: KeyboardSettings.appGroupIdentifier) { sources.append(suite) }
+        sources.append(.standard)
+        for source in sources {
+            if let data = source.data(forKey: "layout.v1"),
+               let legacy = try? JSONDecoder().decode(LegacyLayout.self, from: data),
+               let phrases = legacy.phrases { return phrases }
+        }
+        return nil
+    }
+    private func beginCapture() {
+        guard !isCapturing else { return }
+        syncHostChange(); commitCurrent()
+        let document = BufferDocument()
+        document.onChange = { [weak self] text in
+            guard let self else { return }
+            self.captureLabel.text = text.isEmpty ? "定型文を入力" : text
+            self.captureLabel.textColor = text.isEmpty ? .placeholderText
+                : (self.traitCollection.userInterfaceStyle == .light ? .black : .white)
+        }
+        captureDocument = document
+        documentOverride = document
+        captureLabel.text = "定型文を入力"
+        captureLabel.textColor = .placeholderText
+        updateCaptureStrip()
+        view.setNeedsLayout()
+    }
+    private func endCapture(save: Bool) {
+        guard let document = captureDocument else { return }
+        if save {
+            commitCurrent()
+            let text = document.text
+            if !phraseStore.add(text) {
+                let truncated = String(text.prefix(PhraseBook.maxLength))
+                if truncated != text, phraseStore.add(truncated) {
+                    let alert = UIAlertController(title: "定型文を保存しました",
+                                                  message: "100文字を超えたため、先頭100文字で保存しました。",
+                                                  preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    present(alert, animated: true)
+                }
+            }
+        } else {
+            resetComposition()
+        }
+        captureDocument = nil
+        documentOverride = nil
+        updateCaptureStrip()
+        view.setNeedsLayout()
+    }
+    private func updateCaptureStrip() {
+        captureBar.isHidden = !isCapturing
     }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
@@ -202,7 +309,8 @@ final class KeyboardViewController: UIInputViewController {
             rebuildCanvas()
         case .space: space()
         case .enter:
-            if composition.isEmpty { editor.insert("\n") }
+            if isCapturing && composition.isEmpty { endCapture(save: true) }
+            else if composition.isEmpty { editor.insert("\n") }
             else { commitCurrent() }
         case .paste: pasteFromClipboard()
         }

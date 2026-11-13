@@ -18,19 +18,14 @@ struct LayoutSettings: Codable, Equatable {
     var keyHeight: Double = 0
     var theme = 2
     var japanese = true
-    var phrases: [String] = LayoutSettings.defaultPhrases
+    // 定型文はこの共有設定には含めない。キーボード拡張自身の PhraseStore が持ち、
+    // App Group の署名状態に左右されないようにするため（旧データの phrases キーは
+    // デコード時に無視される。移行は PhraseStore の legacyPhrases が担う）。
 
-    static let defaultPhrases = [
-        "よろしくお願いします。",
-        "ありがとうございます。",
-        "お世話になっております。",
-        "確認しました。",
-        "後ほどご連絡します。"
-    ]
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
 
-    private enum CodingKeys: String, CodingKey { case version, rows, keyHeight, theme, japanese, phrases }
+    private enum CodingKeys: String, CodingKey { case version, rows, keyHeight, theme, japanese }
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,7 +34,6 @@ struct LayoutSettings: Codable, Equatable {
         keyHeight = try values.decodeIfPresent(Double.self, forKey: .keyHeight) ?? 0
         theme = try values.decodeIfPresent(Int.self, forKey: .theme) ?? 2
         japanese = try values.decodeIfPresent(Bool.self, forKey: .japanese) ?? true
-        phrases = try values.decodeIfPresent([String].self, forKey: .phrases) ?? Self.defaultPhrases
     }
 
     var isValid: Bool {
@@ -48,9 +42,6 @@ struct LayoutSettings: Codable, Equatable {
         && Set(rows.joined()).count == rows.reduce(0) { $0 + $1.count }
         && keyHeight.isFinite && (keyHeight == 0 || (32...60).contains(keyHeight))
         && (0...2).contains(theme)
-        && phrases.count <= 20 && phrases.allSatisfy {
-            $0.count <= 100 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-        }
     }
     func exportString() -> String {
         Self.prefix + ((try? JSONEncoder().encode(self)) ?? Data()).base64EncodedString()

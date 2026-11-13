@@ -57,36 +57,13 @@ struct SettingsView: View {
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
                 }
                 Section("定型文") {
-                    Text("ここに登録した文章は自動保存され、キーボードのスペースキーを長押しすると上からリストで表示されます。")
+                    Text("定型文はキーボードの中で登録・削除します。スペースキーを長押しして「定型文を追加」を選ぶと、そのまま入力して保存できます。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    if !KeyboardSettings.sharedContainerAvailable {
-                        Text("このアプリの署名にApp Group \(KeyboardSettings.appGroupIdentifier) が含まれていません。アプリ本体とキーボード拡張の両方を、このApp Group入りのプロビジョニングプロファイルで署名してください。")
-                            .font(.footnote).foregroundStyle(.red)
-                    }
-                    ForEach(Array(layout.phrases.indices), id: \.self) { index in
-                        HStack(spacing: 10) {
-                            TextField("定型文を入力", text: $layout.phrases[index], axis: .vertical)
-                                .lineLimit(1...3)
-                            Button(role: .destructive) {
-                                layout.phrases.remove(at: index)
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .accessibilityLabel("定型文を削除")
-                        }
-                    }
-                    if layout.phrases.count < 20 {
-                        Button {
-                            layout.phrases.append("")
-                        } label: {
-                            Label("定型文を追加", systemImage: "plus")
-                        }
-                    }
-                    Text("\(layout.phrases.count) / 20")
+                    Text("定型文はキーボード拡張の中だけに保存されるため、再署名の方法に左右されません。以前このアプリで登録した定型文は、キーボードを初めて開いたときに自動で引き継がれます。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("キーボードへの反映") {
-                    Text("キー配置と定型文は自動保存されます。キーボードを次に開いたときに反映されます。")
+                    Text("キー配置は自動保存されます。キーボードを次に開いたときに反映されます。")
                     Text("入力内容は送信せず、選んだ変換候補を端末内に学習します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -106,7 +83,7 @@ struct SettingsView: View {
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.3.3 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v0.3.4 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
