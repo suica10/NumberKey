@@ -7,6 +7,10 @@ actor ConversionService {
     /// あるため、このファイル単体でビルドされる SwiftPM 検証ターゲットからは
     /// 直接参照できない。アプリ側が起動時に sink を差し込む (未設定なら無計測)。
     static var perfSink: ((String, Double) -> Void)?
+    /// 検証ターゲット用のスコアラ差し込み口 (perfSink と同じ事情):
+    /// SwiftPM テストでは重みが Bundle.main に無いため RerankScorer.shared
+    /// が nil になる。本番では常に nil で、shared が使われる。
+    static var scorerOverride: RerankScorer?
     private var converter: KanaKanjiConverter?
     private var learningCandidates: [String: Candidate] = [:]
     /// 最後に受け付けた変換リクエストの世代。actor は直列実行なので、古い
@@ -41,7 +45,7 @@ actor ConversionService {
         // AI リランク: 学習済み LM で候補を並べ替える (評価で top-1 76.0%→86.5%)。
         // モデルが読み込めなければ従来の順序のまま。計測 (conv) は変換+並べ替え
         // の合計 — 利用者体感に効くのはサービス全体の時間だから。
-        guard let scorer = RerankScorer.shared else {
+        guard let scorer = Self.scorerOverride ?? RerankScorer.shared else {
             Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
             return top
         }

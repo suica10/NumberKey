@@ -54,6 +54,15 @@ final class TypoCorrectionTests: XCTestCase {
     /// 実サービス経由のゲート方針: タイポが回復し、正常入力を壊さない。
     func testGatedPolicyRecoversTyposWithoutDethroningClean() async throws {
         let fixture = try loadFixture()
+        // SwiftPM テストでは重みが Bundle.main に無い (RerankScorer.shared
+        // は nil) ので、リポジトリ内の重みを直接差し込む (本番経路は shared)。
+        let keyboardDir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../Keyboard")
+        ConversionService.scorerOverride = try RerankScorer(
+            weightsURL: keyboardDir.appendingPathComponent("rerank_weights.bin"),
+            vocabURL: keyboardDir.appendingPathComponent("rerank_vocab.json"))
+        defer { ConversionService.scorerOverride = nil }
         let service = ConversionService()
         await service.warmUp()
         var generation = 0
