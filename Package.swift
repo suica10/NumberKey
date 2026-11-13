@@ -11,8 +11,8 @@ let package = Package(
             name: "KeyboardConversion",
             dependencies: [.product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter")],
             path: "Keyboard",
-            exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "Info.plist"],
-            sources: ["ConversionService.swift"]
+            exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "PerfProbe.swift", "Info.plist"],
+            sources: ["ConversionService.swift", "RerankScorer.swift"]
         ),
         .target(
             name: "PhraseStore",
