@@ -55,12 +55,16 @@ final class KeyboardCanvas: UIView {
         } else {
             values = settings.rows
         }
+        let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")",
+                          "１":"！", "２":"＠", "３":"＃", "４":"＄", "５":"％", "６":"＾", "７":"＆", "８":"＊", "９":"（", "０":"）"]
         for row in values {
             characterRows.append(row.map { text in
-                let button = makeKey(text) { [weak self] in self?.onText?(text) }
+                // 文字キーは touchDown で確定する: touchUpInside だと、離す前に
+                // 指が少しでもキー外へ流れると入力が落ちる (ユーザーの
+                // 「文字が抜ける」の主因)。長押しメニュー付きの数字キーだけは
+                // メニュー選択と二重入力にならないよう従来のまま。
+                let button = makeKey(text, commitOnDown: alternates[text] == nil) { [weak self] in self?.onText?(text) }
                 button.accessibilityIdentifier = text
-                let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")",
-                                  "１":"！", "２":"＠", "３":"＃", "４":"＄", "５":"％", "６":"＾", "７":"＆", "８":"＊", "９":"（", "０":"）"]
                 if let alternate = alternates[text] {
                     button.menu = UIMenu(children: [UIAction(title: alternate) { [weak self] _ in self?.onText?(alternate) }])
                 }
@@ -94,9 +98,9 @@ final class KeyboardCanvas: UIView {
         configureGlobe?(globe)
         let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
         configureSpaceMenu?(space)
-        let comma = makeKey(japanese ? "、" : ",") { [weak self] in self?.onText?(japanese ? "、" : ",") }
+        let comma = makeKey(japanese ? "、" : ",", commitOnDown: true) { [weak self] in self?.onText?(japanese ? "、" : ",") }
         comma.accessibilityLabel = japanese ? "読点" : "comma"
-        let period = makeKey(japanese ? "。" : ".") { [weak self] in self?.onText?(japanese ? "。" : ".") }
+        let period = makeKey(japanese ? "。" : ".", commitOnDown: true) { [weak self] in self?.onText?(japanese ? "。" : ".") }
         period.accessibilityLabel = japanese ? "句点" : "period"
         let enter = makeKey("return") { [weak self] in self?.onAction?(.enter) }
         enter.accessibilityLabel = "改行"
@@ -113,7 +117,7 @@ final class KeyboardCanvas: UIView {
         setNeedsLayout()
     }
 
-    private func makeKey(_ title: String, action: (() -> Void)?) -> KeyboardKey {
+    private func makeKey(_ title: String, commitOnDown: Bool = false, action: (() -> Void)?) -> KeyboardKey {
         let key = KeyboardKey(type: .custom)
         key.setTitle(title, for: .normal)
         key.setTitleColor(dark ? .white : .black, for: .normal)
@@ -129,7 +133,7 @@ final class KeyboardCanvas: UIView {
         key.titleLabel?.adjustsFontSizeToFitWidth = true
         key.titleLabel?.minimumScaleFactor = 0.65
         key.accessibilityLabel = title
-        if let action { key.addAction(UIAction { _ in action() }, for: .touchUpInside) }
+        if let action { key.addAction(UIAction { _ in action() }, for: commitOnDown ? .touchDown : .touchUpInside) }
         addSubview(key)
         return key
     }
