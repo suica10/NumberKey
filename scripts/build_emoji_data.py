@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Build Keyboard/emoji_data.txt from the Unicode emoji test file.
 
-Source: https://www.unicode.org/Public/emoji/latest/emoji-test.txt
+Source: https://www.unicode.org/Public/emoji/16.0/emoji-test.txt
 (Unicode license; data file listing fully-qualified emoji by group).
+PIN THE VERSION: do not use "latest" — it includes emoji newer than
+what current iOS releases can render (they show as "?" placeholders).
+16.0 matches iOS 18.4+ / iOS 26. Bump only when iOS ships the newer set.
 
 Output: one line per category, "label<TAB>emoji1 emoji2 ...".
 Only fully-qualified emoji are kept; the Component group and all

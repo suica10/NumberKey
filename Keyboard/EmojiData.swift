@@ -44,6 +44,15 @@ final class RecentEmojiStore {
         items = Array(items.prefix(Self.maxItems))
         defaults.set(items, forKey: key)
     }
+
+    /// カタログに無い絵文字（端末が表示できない新しい絵文字など）を履歴から取り除く。
+    func retainOnly(valid: Set<String>) {
+        let filtered = items.filter { valid.contains($0) }
+        if filtered != items {
+            items = filtered
+            defaults.set(items, forKey: key)
+        }
+    }
 }
 
 private final class EmojiBundleAnchor {}

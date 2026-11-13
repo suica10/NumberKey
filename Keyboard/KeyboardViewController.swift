@@ -505,7 +505,10 @@ final class KeyboardViewController: UIInputViewController {
         buildPanelsIfNeeded()
         hidePhrasePicker()
         hideClipboardPanel()
-        if emojiCategories.isEmpty { emojiCategories = EmojiCatalog.loadBundled() }
+        if emojiCategories.isEmpty {
+            emojiCategories = EmojiCatalog.loadBundled()
+            recentEmojiStore.retainOnly(valid: Set(emojiCategories.flatMap { $0.emojis }))
+        }
         if recentEmojiStore.items.isEmpty { emojiCategoryIndex = 1 }
         isEmojiPicking = true
         rebuildEmojiCategories()

@@ -22,4 +22,14 @@ final class EmojiDataTests: XCTestCase {
         XCTAssertEqual(store.items.count, RecentEmojiStore.maxItems)
         XCTAssertEqual(RecentEmojiStore(defaults: defaults).items, store.items)
     }
+
+    func testRecentsPruneDropsUnknown() {
+        let defaults = UserDefaults(suiteName: "EmojiDataTests-\(UUID().uuidString)")!
+        let store = RecentEmojiStore(defaults: defaults)
+        store.record("😀")
+        store.record("🫝")
+        store.retainOnly(valid: ["😀", "🎉"])
+        XCTAssertEqual(store.items, ["😀"])
+        XCTAssertEqual(RecentEmojiStore(defaults: defaults).items, ["😀"])
+    }
 }
