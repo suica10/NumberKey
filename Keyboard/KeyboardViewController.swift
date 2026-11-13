@@ -106,11 +106,14 @@ final class KeyboardViewController: UIInputViewController {
             await MainActor.run { self?.englishLexicon = loaded }
         }
         if PerfProbe.enabled {
-            perfLabel.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
-            perfLabel.textColor = .secondaryLabel
-            perfLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.8)
+            // 開発用と一目で分かる高コントラスト表示にする。候補欄に重ねず、
+            // レイアウト側で専用の帯を確保する (viewDidLayoutSubviews 参照)。
+            perfLabel.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+            perfLabel.textColor = .black
+            perfLabel.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.92)
             perfLabel.adjustsFontSizeToFitWidth = true
             perfLabel.minimumScaleFactor = 0.7
+            perfLabel.text = "PerfProbe 起動中"
             view.addSubview(perfLabel)
         }
         view.addSubview(candidateScroll)
@@ -417,16 +420,20 @@ final class KeyboardViewController: UIInputViewController {
             emojiScroll.frame = CGRect(x: 8, y: 86, width: max(0, panelWidth - 16), height: max(0, panelHeight - 86 - 8))
         }
         let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight + emojiPanelHeight
+        // PerfProbe の帯は候補欄の上に専用スペースを確保する。重ね表示だと
+        // 候補のボタンやホスト側の角丸に隠れて見えないことがあったため。
+        // パネル表示中は帯ごと隠す。
+        let perfHeight: CGFloat = (PerfProbe.enabled && topHeight == 0) ? 16 : 0
         if PerfProbe.enabled {
-            // パネル表示中は隠す。通常入力中だけ候補欄の上端に重ねる。
-            perfLabel.isHidden = topHeight > 0
-            if topHeight == 0 { perfLabel.frame = CGRect(x: 4, y: 0, width: max(0, width - 8), height: 12) }
+            perfLabel.isHidden = perfHeight == 0
+            if perfHeight > 0 { perfLabel.frame = CGRect(x: 0, y: topHeight, width: width, height: perfHeight) }
             view.bringSubviewToFront(perfLabel)
+            updatePerfOverlay()
         }
         candidateScroll.isHidden = candidateHeight == 0
-        candidateScroll.frame = CGRect(x: 0, y: topHeight, width: width, height: candidateHeight)
-        canvas.frame = CGRect(x: 0, y: topHeight + candidateHeight, width: width, height: keysHeight)
-        let height = topHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
+        candidateScroll.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
+        canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
+        let height = topHeight + perfHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
     }
     override func textDidChange(_ textInput: UITextInput?) {
@@ -1058,7 +1065,9 @@ final class KeyboardViewController: UIInputViewController {
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
     private func updatePerfOverlay() {
         guard PerfProbe.enabled else { return }
-        perfLabel.text = PerfProbe.shared.summary()
+        let summary = PerfProbe.shared.summary()
+        // 集計が空でも帯が見えること自体が診断情報になるため、空文字にはしない。
+        perfLabel.text = summary.isEmpty ? "PerfProbe: 計測待ち" : summary
     }
 
     // MARK: - 英語の補完・自動修正
