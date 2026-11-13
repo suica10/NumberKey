@@ -1,0 +1,36 @@
+name: Prototype rerank candidates
+
+# Evaluation harness for the neural-rerank prototype: produces candidates.json
+# (the app's real top-12 candidate lists for Prototype/eval_sentences.json)
+# as an artifact for the offline scorer in Prototype/lm.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prototype-rerank-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dump:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare pinned converter and dictionaries
+        run: bash scripts/bootstrap.sh
+      - name: Dump candidate lists for eval sentences
+        env:
+          PROTO_EVAL_JSON: ${{ github.workspace }}/Prototype/eval_sentences.json
+          PROTO_DUMP_DIR: ${{ github.workspace }}/build/proto
+        run: swift test --configuration release --filter CandidateDumpTests
+      - name: Upload candidates.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidates
+          path: build/proto/candidates.json
+          if-no-files-found: error
