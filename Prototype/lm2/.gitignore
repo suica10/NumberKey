@@ -1,0 +1,6 @@
+# Training data, checkpoints, and logs are large and reproducible — never commit.
+corpus.txt
+*.bz2
+*.pt
+*.log
+__pycache__/

@@ -55,3 +55,23 @@ before any integration ships.
 - Floors for any future integration: no typing-latency regression, no
   candidate-order degradation, small model. Fallback to the app order when
   the model is unavailable.
+
+## LM v2 training (2026-11-14)
+
+A second training run in `lm2/`, ordered by the user ("more data +
+optimization"). The v1 model in `lm/` is the shipped production model and
+stays untouched.
+
+- Data: the full corpus instead of v1's 60k slice. Exact-dedupe removed
+  0 lines (the corpus was already unique — 248,970 lines); 247,895 lines
+  pass the trainer's 3–60 char filter, so with the 1,000-sentence holdout
+  the run trains on **246,895 sentences × 3 epochs** (v1: 59,000).
+- Same architecture (embedding 128, GRU 512×2, batch 128, lr 2e-3). The
+  larger corpus grows the vocab 2,287 → 2,824 (more chars pass
+  min_freq 3), so params go 4.03M → 4.37M (int8 ≈ 4.4MB — still a
+  plausible keyboard-extension size).
+- Training is resumable (checkpoints every 40 batches) and supervised by
+  the `rerank-lm2-training-watch` cron, which relaunches it after VM
+  replacements and reports completion.
+- **Ship gate: v2 ships ONLY if `lm2/rerank_eval.py` on `candidates.json`
+  beats v1's LM-only (sum log-prob) top-1 of 0.865.** Otherwise v1 stays.
