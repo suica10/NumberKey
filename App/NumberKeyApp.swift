@@ -83,7 +83,7 @@ struct SettingsView: View {
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
                 }
                 Section {
-                    Text("NumberKey v0.3.4 ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("NumberKey v0.3.5 ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
