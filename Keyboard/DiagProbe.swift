@@ -1,7 +1,8 @@
 import Foundation
 
 /// 一時的な実機診断: TestFlight ビルド (39/41) で変換候補が全滅する件の切り分け。
-/// キーボード起動時に一度だけ実行し、結果を App Group の diag-probe.txt に書く。
+/// キーボード起動時に一度だけ実行し、結果を DiagTrace 経由で App Group の
+/// diag-probe.txt / diag-probe.csv に書く。
 /// 本体アプリの「診断」セクションが内容をそのまま表示する。
 /// 原因が判明したら、このファイルとフックごと削除すること。
 enum DiagProbe {
@@ -93,9 +94,9 @@ enum DiagProbe {
             lines.append("[c] nihongo filtered count: \(probe.filtered.count)")
             lines.append("[c] nihongo filtered first3: \(probe.filtered.prefix(3).joined(separator: " / "))")
 
-            if let url = fileURL {
-                try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
-            }
+            // 書き出しは DiagTrace に一本化する (ライブトレースと合わせて
+            // diag-probe.txt / diag-probe.csv の両形式で出すため)。
+            DiagTrace.shared.setProbe(lines: lines)
         }
     }
 }

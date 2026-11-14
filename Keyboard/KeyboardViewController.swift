@@ -102,6 +102,8 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
         ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
+        // 実機診断: ライブ変換パスのトレースを DiagTrace に集約する。
+        ConversionService.traceSink = { event, detail in DiagTrace.shared.record(event: event, detail: detail) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
         // 英単語リスト（約1MB）の読み込みは起動処理を止めないよう非同期で行う。
         // 起動が重いとアップデート直後の初回表示で iOS に見限られ、代わりに
@@ -910,6 +912,7 @@ final class KeyboardViewController: UIInputViewController {
         let inputStamp = PerfProbe.stamp()
         revision += 1
         let requestRevision = revision, snapshot = composition
+        DiagTrace.shared.record(event: "vc.schedule", detail: "rev=\(requestRevision) input=\(snapshot.convertTarget) empty=\(snapshot.isEmpty)")
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
         // 残したまま新しい変換結果を待つ。
@@ -926,13 +929,30 @@ final class KeyboardViewController: UIInputViewController {
             // 打鍵の束をまとめるための短い待ち。長くするとその分だけ候補の
             // 出現が遅れるので最小限にし、古い変換の実行自体はサービス側の
             // 世代ゲートで省く。
-            do { try await Task.sleep(nanoseconds: 4_000_000) } catch { return }
-            guard !Task.isCancelled else { return }
+            do { try await Task.sleep(nanoseconds: 4_000_000) } catch {
+                DiagTrace.shared.record(event: "vc.sleepcancel", detail: "rev=\(requestRevision)")
+                return
+            }
+            guard !Task.isCancelled else {
+                DiagTrace.shared.record(event: "vc.cancelled", detail: "rev=\(requestRevision)")
+                return
+            }
             // 世代遅れでスキップされたら nil。状態は新しいタスクが持つので触らない。
             let awaitStamp = PerfProbe.stamp()
-            guard let result = await service.candidates(for: snapshot, generation: requestRevision) else { return }
+            let serviceResult = await service.candidates(for: snapshot, generation: requestRevision)
+            guard let result = serviceResult else {
+                DiagTrace.shared.record(event: "vc.stale", detail: "rev=\(requestRevision) input=\(snapshot.convertTarget)")
+                return
+            }
             PerfProbe.shared.record("await", since: awaitStamp)
-            guard !Task.isCancelled, let self, self.revision == requestRevision else { return }
+            guard !Task.isCancelled, let self else {
+                DiagTrace.shared.record(event: "vc.dropped", detail: "rev=\(requestRevision) reason=cancelled-or-gone")
+                return
+            }
+            guard self.revision == requestRevision else {
+                DiagTrace.shared.record(event: "vc.dropped", detail: "rev=\(requestRevision) nowRev=\(self.revision) reason=revision-mismatch")
+                return
+            }
             // ここで syncHostChange() はしない。変換中にホスト側で編集があれば
             // textDidChange / selectionDidChange 側のチェックで composition が
             // リセットされ、revision ガードでこの結果は捨てられる。毎回の
@@ -947,6 +967,7 @@ final class KeyboardViewController: UIInputViewController {
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             let hadWaitingSpace = self.waitingSpaceCount > 0
             self.waitingSpaceCount = 0
+            DiagTrace.shared.record(event: "vc.applied", detail: "rev=\(requestRevision) svcCount=\(result.count) finalCount=\(newCandidates.count) first=\(newCandidates.first ?? "") changed=\(candidatesChanged) render=\(candidatesChanged || hadWaitingSpace)")
             // 候補が前回と同一なら候補欄の再描画は不要（体感の遅さ対策）。
             if candidatesChanged || hadWaitingSpace { self.renderState() }
             self.updatePerfOverlay()
@@ -1082,6 +1103,7 @@ final class KeyboardViewController: UIInputViewController {
                 candidateScroll.setContentOffset(.zero, animated: false)
             }
         }
+        DiagTrace.shared.record(event: "bar.render", detail: "items=\(candidateKeys.count) stripCount=\(stripCount) showsStrip=\(showsCandidateStrip) composing=\(!composition.isEmpty) ja=\(isJapanese) rev=\(revision)")
     }
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
     private func updatePerfOverlay() {

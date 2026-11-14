@@ -13,6 +13,7 @@ struct SettingsView: View {
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
     @State private var diagText: String?
+    @State private var diagCSVURL: URL?
     @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
     /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
     private var displayState: PurchaseState { store.isPurchased ? .unlocked : gateState }
@@ -95,6 +96,11 @@ struct SettingsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     Button("再読み込み") { loadDiagText() }
+                    if let diagCSVURL {
+                        ShareLink(item: diagCSVURL) {
+                            Label("診断CSVを共有", systemImage: "square.and.arrow.up")
+                        }
+                    }
                 }
                 Section("使い方") {
                     Text("「123」の長押し：カーソルを左右に移動")
@@ -144,11 +150,14 @@ struct SettingsView: View {
         if store.isWorking { ProgressView() }
     }
     /// キーボード拡張が App Group に書いた診断結果 (diag-probe.txt) を読む。
+    /// あわせて共有用 CSV (diag-probe.csv) の有無も確認する。
     private func loadDiagText() {
-        guard let url = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: KeyboardSettings.appGroupIdentifier)?
-            .appendingPathComponent("diag-probe.txt") else { diagText = nil; return }
-        diagText = try? String(contentsOf: url, encoding: .utf8)
+        guard let dir = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: KeyboardSettings.appGroupIdentifier)
+        else { diagText = nil; diagCSVURL = nil; return }
+        diagText = try? String(contentsOf: dir.appendingPathComponent("diag-probe.txt"), encoding: .utf8)
+        let csv = dir.appendingPathComponent("diag-probe.csv")
+        diagCSVURL = FileManager.default.fileExists(atPath: csv.path) ? csv : nil
     }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),

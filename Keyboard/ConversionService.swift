@@ -11,6 +11,10 @@ actor ConversionService {
     /// SwiftPM テストでは重みが Bundle.main に無いため RerankScorer.shared
     /// が nil になる。本番では常に nil で、shared が使われる。
     static var scorerOverride: RerankScorer?
+    /// 実機診断用トレースフック（DiagTrace へ中継される）。perfSink と同じ
+    /// 事情でアプリ側が起動時に差し込む（未設定なら無記録）。引数は
+    /// （イベント名, 詳細）。診断が終わったら DiagProbe と一緒に外すこと。
+    static var traceSink: ((String, String) -> Void)?
     private var converter: KanaKanjiConverter?
     private var learningCandidates: [String: Candidate] = [:]
     /// 最後に受け付けた変換リクエストの世代。actor は直列実行なので、古い
@@ -33,11 +37,22 @@ actor ConversionService {
 
     /// 世代遅れでスキップした場合は nil を返す（本当に候補が無い場合の [] と区別する）。
     func candidates(for composition: ComposingText, generation: Int) -> [String]? {
-        if generation < newestGeneration { return nil }
+        let target = composition.convertTarget
+        if generation < newestGeneration {
+            Self.traceSink?("svc.stale", "gen=\(generation) newest=\(newestGeneration) input=\(target)")
+            return nil
+        }
         newestGeneration = generation
-        guard !composition.isEmpty else { learningCandidates.removeAll(); return [] }
+        guard !composition.isEmpty else {
+            learningCandidates.removeAll()
+            Self.traceSink?("svc.empty", "gen=\(generation)")
+            return []
+        }
         warmUp()
-        guard let converter else { return [] }
+        guard let converter else {
+            Self.traceSink?("svc.noconverter", "gen=\(generation) input=\(target)")
+            return []
+        }
         learningCandidates.removeAll()
         let convStart = ProcessInfo.processInfo.systemUptime
         let visibleCandidates = fullInputCandidates(for: composition, converter: converter)
@@ -47,6 +62,7 @@ actor ConversionService {
         // の合計 — 利用者体感に効くのはサービス全体の時間だから。
         guard let scorer = Self.scorerOverride ?? RerankScorer.shared else {
             Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
+            Self.traceSink?("svc.result", "gen=\(generation) input=\(target) count=\(top.count) first=\(top.first ?? "") rerank=off")
             return top
         }
         let reranked = scorer.rerank(top)
@@ -54,6 +70,7 @@ actor ConversionService {
         // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
         let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
         Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
+        Self.traceSink?("svc.result", "gen=\(generation) input=\(target) count=\(corrected.count) first=\(corrected.first ?? "")")
         return corrected
     }
 
