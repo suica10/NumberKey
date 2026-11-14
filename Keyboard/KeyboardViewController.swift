@@ -669,7 +669,7 @@ final class KeyboardViewController: UIInputViewController {
             clipboardStack.addArrangedSubview(label)
         }
         guard hasFullAccess else {
-            noteRow("フルアクセスが必要です。設定 → 一般 → キーボード → NumberKeyで「フルアクセスを許可」をオンにしてください。")
+            noteRow("フルアクセスが必要です。設定 → 一般 → キーボード → One Keyboardで「フルアクセスを許可」をオンにしてください。")
             return
         }
         clipboardStore.reload()
@@ -814,7 +814,7 @@ final class KeyboardViewController: UIInputViewController {
         guard isCapturing else { return }
         guard hasFullAccess else {
             let alert = UIAlertController(title: "貼り付けできません",
-                                          message: "クリップボードの読み取りにはフルアクセスが必要です。設定でNumberKeyのフルアクセスを許可してください。",
+                                          message: "クリップボードの読み取りにはフルアクセスが必要です。設定でOne Keyboardのフルアクセスを許可してください。",
                                           preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: true)
@@ -841,7 +841,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func showImportError() {
         let alert = UIAlertController(title: "配置を読み込めませんでした",
-                                      message: "NumberKeyアプリで配置をコピーしてから、もう一度読み込んでください。",
+                                      message: "One Keyboardアプリで配置をコピーしてから、もう一度読み込んでください。",
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)

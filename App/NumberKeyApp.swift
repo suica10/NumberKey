@@ -91,17 +91,17 @@ struct SettingsView: View {
                     Text("スペースを長押し：入力モード選択・定型文入力")
                     Text("リターンを長押し：クリップボードのテキストを貼り付け（フルアクセスが必要）")
                     Text("削除を長押し：連続削除")
-                    Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")
+                    Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → One Keyboard")
                 }
                 Section {
-                    Text("NumberKey v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") ・ iOS 17以降").foregroundStyle(.secondary)
+                    Text("One Keyboard v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
                         ScrollView { Text(licenseText).font(.system(.footnote, design: .monospaced)).padding().textSelection(.enabled) }
                             .navigationTitle("ライセンス")
                     }
                 }
             }
-            .navigationTitle("NumberKey")
+            .navigationTitle("One Keyboard")
             .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
             .task {
                 packEnabled = DictionaryPackID.allCases.reduce(into: [:]) { $0[$1] = packStore.isEnabled($1) }
