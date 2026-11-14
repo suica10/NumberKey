@@ -11,7 +11,7 @@ private final class CandidateKey: UIButton {
 }
 
 @MainActor
-final class KeyboardViewController: UIInputViewController {
+final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
     var settings = KeyboardSettings()
     var documentOverride: KeyboardDocument?
     private lazy var editor = MarkedTextSession { [unowned self] in
@@ -36,16 +36,28 @@ final class KeyboardViewController: UIInputViewController {
     /// （詳細は updateRequestedHeight のコメント参照）。
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
-    private let candidateScroll = UIScrollView()
+    /// 候補帯のコンテナ（build 58: UIScrollView を廃止）。
+    /// build 56 まで帯は UIScrollView で、中身を手動フレーム＋手動
+    /// contentSize にしても「帯に触れると候補の表示だけが消える
+    /// （ヒットテストと確定は生きている）」「横スクロールできない」
+    /// 症状が残った。スクロールビュー内部のレイヤ構造がこのホスト
+    /// （iOS 27 のリモート描画）と相性が悪いと判断し、帯はプレーンな
+    /// UIView（他パネルと同じ素性）に変え、横スクロールは
+    /// UIPanGestureRecognizer で候補キーのフレームを手動でずらす
+    /// 自前実装にした。帯の中に Auto Layout は持ち込まない。
+    private let candidateStrip = UIView()
+    /// 候補帯の横スクロール用パン認識器（build 58）。
+    private let candidatePan = UIPanGestureRecognizer()
+    /// 候補帯のスクロールオフセット（pt、0 = 左端）。
+    private var stripContentOffsetX: CGFloat = 0
+    /// 候補コンテンツの総幅（renderState の配置で更新）。
+    private var stripContentWidth: CGFloat = 0
+    /// パン開始時点のオフセット（ドラッグ量の基準）。
+    private var stripPanBase: CGFloat = 0
     /// 高さ交渉のための Auto Layout 足場（不可視の sizer view）。
-    /// build 53 で候補帯内（candidateScroll の中）に置いたが、ビルド56で
-    /// ルート直下へ移した。帯の中に Auto Layout を持ち込むと、この
-    /// ホストのリモート描画では (1) contentSize が制約経由の解決結果に
-    /// 引っ張られて横スクロール範囲が壊れ、(2) スクロール中のコンテンツ
-    /// レイアウトパスを契機に候補キーの描画だけが落ちる（キーの実在・
-    /// ヒットテスト・確定動作は正常なまま）症状が出たため。帯の中は
-    /// ビルド48の「scroll 直下・手動フレーム + 手動 contentSize」に戻し、
-    /// 足場は帯の外でルート階層の Auto Layout 参加だけを担う。
+    /// build 53 で候補帯内に置いたが、ビルド56でルート直下へ移した。
+    /// 足場は帯の外でルート階層の Auto Layout 参加だけを担い、帯の
+    /// 高さには candidateStrip の height と等しくして連動させる。
     private let candidateSizer = UIView()
     /// 候補バーの高さ（表示時）。帯の高さはこの定数を唯一の情報源とし、
     /// 要求高さ・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
@@ -54,8 +66,9 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStripHeight: CGFloat = 34
     /// 現在の状態で帯が占める高さ（非表示なら 0）。
     private var currentCandidateHeight: CGFloat { showsCandidateStrip ? candidateStripHeight : 0 }
-    // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
-    // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
+    // build 48: candidateStack コンテナは廃止。候補キーは候補帯コンテナ
+    // （build 58 で candidateStrip）の直下に直接置く
+    // (詳細は renderState の配置ブロックのコメント参照)。
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
     private let perfLabel = UILabel()
@@ -153,24 +166,23 @@ final class KeyboardViewController: UIInputViewController {
             perfLabel.text = "PerfProbe 起動中"
             view.addSubview(perfLabel)
         }
-        view.addSubview(candidateScroll)
-        candidateScroll.showsHorizontalScrollIndicator = false
-        // build 56: スクロールの挙動を候補帯用に固定する。
-        // - contentInsetAdjustmentBehavior = .never: 既定の .automatic では
-        //   キーボードのセーフエリア（ホームインジケータ側）分のインセットが
-        //   adjustedContentInset に乗り、帯の高さ34ptに対して縦方向の
-        //   スクロール余地が生まれうる。帯は横専用なので余地を断つ。
-        // - isDirectionalLockEnabled: 斜めドラッグを横方向に固定する。
-        // - delaysContentTouches / パンの cancelsTouchesInView は UIKit
-        //   既定値 (true/true) だが、候補選択が「ドラッグでは発火せず、
-        //   離したタップ（touchUpInside）でのみ発火する」前提を明示する。
-        candidateScroll.contentInsetAdjustmentBehavior = .never
-        candidateScroll.isDirectionalLockEnabled = true
-        candidateScroll.delaysContentTouches = true
-        candidateScroll.panGestureRecognizer.cancelsTouchesInView = true
-        // build 56: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
+        // build 58: 候補帯はプレーンな UIView。はみ出した候補は
+        // clipsToBounds で切り、横スクロールはパン認識器でキー
+        // フレームをずらして実現する（candidateStrip のコメント参照）。
+        // ドラッグが始まったら候補ボタンのタッチはキャンセルされ、
+        // 候補選択は従来どおり離したタップ（touchUpInside）でのみ発火
+        // する（cancelsTouchesInView = true）。縦ドラッグは開始しない
+        // （gestureRecognizerShouldBegin で横方向だけに絞る。旧
+        // UIScrollView の directional lock 相当）。
+        view.addSubview(candidateStrip)
+        candidateStrip.clipsToBounds = true
+        candidatePan.addTarget(self, action: #selector(handleCandidatePan(_:)))
+        candidatePan.cancelsTouchesInView = true
+        candidatePan.delegate = self
+        candidateStrip.addGestureRecognizer(candidatePan)
+        // build 56/58: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
         // 候補帯の中ではなくルート直下に置く（candidateSizer のコメント
-        // 参照）。帯の高さに連動させるため height は candidateScroll の
+        // 参照）。帯の高さに連動させるため height は candidateStrip の
         // height と等しくする。sizer は操作を受けず、背景も透明で、
         // レイアウトには一切影響しない（幅0・左上固定）。
         candidateSizer.backgroundColor = .clear
@@ -181,7 +193,7 @@ final class KeyboardViewController: UIInputViewController {
             candidateSizer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             candidateSizer.topAnchor.constraint(equalTo: view.topAnchor),
             candidateSizer.widthAnchor.constraint(equalToConstant: 0),
-            candidateSizer.heightAnchor.constraint(equalTo: candidateScroll.heightAnchor),
+            candidateSizer.heightAnchor.constraint(equalTo: candidateStrip.heightAnchor),
         ])
         // build 48: build 47 の実機診断で、scroll 直下のマーカー B とルート直下の
         // マーカー A は表示されるのに、コンテナ candidateStack の子 (マーカー C と
@@ -189,7 +201,7 @@ final class KeyboardViewController: UIInputViewController {
         // frame/win/hidden/alpha も key0 の model/presentation も全て正常。
         // build 46 で UIStackView → 素の UIView + 手動フレームに替えても中身が
         // 出なかったため、コンテナそのものを廃止し、候補キーは renderState で
-        // candidateScroll の直下に直接配置する。
+        // 候補帯の直下に直接配置する（build 58 で帯は candidateStrip）。
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -590,8 +602,8 @@ final class KeyboardViewController: UIInputViewController {
             view.bringSubviewToFront(perfLabel)
             updatePerfOverlay()
         }
-        candidateScroll.isHidden = candidateHeight == 0
-        candidateScroll.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
+        candidateStrip.isHidden = candidateHeight == 0
+        candidateStrip.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
         canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
         expiredView.isHidden = !purchaseExpired
@@ -1148,7 +1160,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         canvas.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !showsCandidateStrip
-        if candidateScroll.isHidden != shouldHideCandidates {
+        if candidateStrip.isHidden != shouldHideCandidates {
             view.setNeedsLayout()
             // build 50: 要求高さはレイアウトパスの完了を待たず、帯の
             // 表示/非表示が切り替わったこの場で新しい合計高さに更新する。
@@ -1174,8 +1186,9 @@ final class KeyboardViewController: UIInputViewController {
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
             candidateKeys.append(key)
-            // build 48: コンテナ (旧 candidateStack) を介さず scroll 直下へ直接置く。
-            candidateScroll.addSubview(key)
+            // build 48: コンテナ (旧 candidateStack) を介さず帯の直下へ
+            // 直接置く（build 58 で帯は candidateStrip）。
+            candidateStrip.addSubview(key)
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
@@ -1229,38 +1242,88 @@ final class KeyboardViewController: UIInputViewController {
                 key.actionRevision = displayedRevision
             }
         }
-        // build 48: 手動フレーム配置。キーは candidateScroll の直下の子で、
-        // frame は scroll のコンテンツ座標そのもの。左端 6pt から 8pt 間隔で
-        // 並べる (右端にも 6pt の余白を残す)。
-        // 配置計算自体は build 46 (コンテナ内配置) から無変更。
-        // build 56: contentSize はコードで明示的に設定する（ビルド48方式）。
-        // ビルド53〜55では帯内 sizer の制約経由で決めていたが、解決結果が
-        // 実コンテンツ幅と一致せず横スクロールできなかった。sizer は
-        // ビルド56で帯の外（ルート直下）へ移設済みで、帯の中は手動のみ。
-        do {
-            var x: CGFloat = 6
-            let stripHeight = candidateStripHeight
-            for key in candidateKeys {
-                var w = key.intrinsicContentSize.width
-                if w <= 0 {
-                    w = key.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: stripHeight)).width
-                }
-                key.frame = CGRect(x: x, y: 0, width: w, height: stripHeight)
-                x += w + 8
-            }
-            let contentWidth = candidateKeys.isEmpty ? 0 : x - 8 + 6
-            candidateScroll.contentSize = CGSize(width: contentWidth, height: stripHeight)
-        }
+        // build 58: 配置は layoutCandidateKeys() に集約する（パンの
+        // 途中でも同じ計算で付け直せるようにするため）。内容が変われば
+        // 総幅も変わるので、オフセットを範囲内に収めてから配置する。
+        layoutCandidateKeys()
         PerfProbe.shared.record("strip", since: stripStamp)
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
-        // （選択ハイライトだけの変化では戻さない。）
+        // （選択ハイライトだけの変化では戻さない。旧 contentOffset の
+        // リセット相当。）
         let stripValues = isJapanese ? candidates : englishSuggestions
         if stripValues != lastStripValues {
             lastStripValues = stripValues
-            if candidateScroll.contentOffset.x != 0 {
-                candidateScroll.setContentOffset(.zero, animated: false)
+            if stripContentOffsetX != 0 {
+                stripContentOffsetX = 0
+                layoutCandidateKeys()
             }
         }
+    }
+
+    /// 候補キーを手動フレームで配置する（build 58）。キーは帯
+    /// （candidateStrip）の直下の子で、frame はコンテンツ座標から
+    /// 現在のスクロールオフセットを差し引いたもの。左端 6pt から
+    /// 8pt 間隔で並べる（右端にも 6pt の余白を残す）。キーの幅計算は
+    /// build 46 以来の計算そのまま。総幅は stripContentWidth に残し、
+    /// オフセットは [0, 総幅 − 帯幅] にクランプする。
+    private func layoutCandidateKeys() {
+        let stripHeight = candidateStripHeight
+        var widths: [CGFloat] = []
+        widths.reserveCapacity(candidateKeys.count)
+        var contentWidth: CGFloat = 0
+        for key in candidateKeys {
+            var w = key.intrinsicContentSize.width
+            if w <= 0 {
+                w = key.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: stripHeight)).width
+            }
+            widths.append(w)
+            contentWidth += w + 8
+        }
+        stripContentWidth = candidateKeys.isEmpty ? 0 : contentWidth - 8 + 12
+        stripContentOffsetX = clampedStripOffset(stripContentOffsetX)
+        var x: CGFloat = 6 - stripContentOffsetX
+        for (index, key) in candidateKeys.enumerated() {
+            key.frame = CGRect(x: x, y: 0, width: widths[index], height: stripHeight)
+            x += widths[index] + 8
+        }
+    }
+
+    /// スクロールオフセットの許容範囲へのクランプ。
+    private func clampedStripOffset(_ offset: CGFloat) -> CGFloat {
+        let maxOffset = max(0, stripContentWidth - candidateStrip.bounds.width)
+        return min(max(0, offset), maxOffset)
+    }
+
+    /// オフセットを変えて候補キーを付け直す（パン中の再配置）。
+    private func setStripOffset(_ offset: CGFloat) {
+        let clamped = clampedStripOffset(offset)
+        guard clamped != stripContentOffsetX else { return }
+        stripContentOffsetX = clamped
+        layoutCandidateKeys()
+    }
+
+    /// 候補帯の横スクロール（build 58: UIPanGestureRecognizer による
+    /// 自前実装）。指を左へ動かすとコンテンツが左へ寄る。認識器の
+    /// cancelsTouchesInView により、ドラッグが始まった時点で候補
+    /// ボタンのタッチはキャンセルされるので、スクロール目的の
+    /// ドラッグで候補が確定することはない。
+    @objc private func handleCandidatePan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            stripPanBase = stripContentOffsetX
+        case .changed:
+            setStripOffset(stripPanBase - gesture.translation(in: candidateStrip).x)
+        default:
+            break
+        }
+    }
+
+    /// 候補帯のパンは横方向のドラッグだけ開始する（旧 UIScrollView の
+    /// directional lock 相当。縦ドラッグは帯では扱わない）。
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === candidatePan else { return true }
+        let velocity = candidatePan.velocity(in: candidateStrip)
+        return abs(velocity.x) > abs(velocity.y)
     }
 
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
