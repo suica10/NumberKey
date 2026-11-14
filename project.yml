@@ -12,6 +12,13 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Xcode 27 enables Swift explicit modules by default. Its dependency
+    # scanner tries to build a PCM for marisa-trie (the C++ target of
+    # SwiftyMarisa, which joins the graph via the Zenzai traits) without
+    # C++ language mode and fails with "'cstdio' file not found". Xcode 16
+    # compiled it as a plain C++ target. Keep explicit modules off so the
+    # C++ package targets build the classic way.
+    SWIFT_ENABLE_EXPLICIT_MODULES: NO
 packages:
   Converter:
     path: Vendor/AzooKeyKanaKanjiConverter
