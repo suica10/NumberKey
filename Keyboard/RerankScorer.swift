@@ -103,6 +103,8 @@ final class RerankScorer: @unchecked Sendable {
         var gi = [Float](repeating: 0, count: n * 3 * H)
         var gh = [Float](repeating: 0, count: n * 3 * H)
         var logits = [Float](repeating: 0, count: n * vocabSize)
+        // Reuse one mask across timesteps; every entry is overwritten before use.
+        var active = [Bool](repeating: false, count: n)
 
         func gemm(_ a: UnsafePointer<Float>, _ lda: Int32, _ b: UnsafePointer<Float>, _ ldb: Int32,
                   _ c: UnsafeMutablePointer<Float>, _ ldc: Int32, rows: Int32, cols: Int32, inner: Int32) {
@@ -129,7 +131,7 @@ final class RerankScorer: @unchecked Sendable {
         }
 
         for t in 0..<steps {
-            let active: [Bool] = ids.map { t < $0.count - 1 }
+            for i in 0..<n { active[i] = t < ids[i].count - 1 }
             // layer 0: 入力は埋め込みベクトル
             for i in 0..<n where active[i] {
                 let row = emb + Int(ids[i][t]) * embDim
