@@ -1022,6 +1022,12 @@ final class KeyboardViewController: UIInputViewController {
         let katakana = kana.applyingTransform(.hiraganaToKatakana, reverse: false) ?? kana
         return kana == katakana ? [kana] : [kana, katakana]
     }
+    /// build 45: 候補キーの未選択ピル背景と選択時背景。.custom ボタンでは
+    /// システム側の見た目が付かないため、スタイルに合わせて自前で塗る。
+    private func candidatePillColor(isLight: Bool) -> UIColor {
+        isLight ? UIColor(white: 1.0, alpha: 0.65) : UIColor(white: 0.32, alpha: 0.55)
+    }
+    private var selectedCandidateColor: UIColor { UIColor(white: 0.45, alpha: 0.95) }
     private func renderState(updateMarked: Bool = true) {
         if !isJapanese { refreshEnglishSuggestions() }
         if updateMarked {
@@ -1040,9 +1046,13 @@ final class KeyboardViewController: UIInputViewController {
             key.removeFromSuperview()
         }
         while candidateKeys.count < stripCount {
-            let key = CandidateKey(type: .system)
+            // build 45: .system ボタンは iOS 27 SDK でホスト側リモートビューに
+            // ラベル/マテリアルが合成されず候補欄が空白になる疑いがあるため
+            // .custom に変更し、背景色も自前で塗る。
+            let key = CandidateKey(type: .custom)
             key.titleLabel?.font = .systemFont(ofSize: 17)
             key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
+            key.backgroundColor = candidatePillColor(isLight: traitCollection.userInterfaceStyle == .light)
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
@@ -1051,7 +1061,12 @@ final class KeyboardViewController: UIInputViewController {
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
-            candidateKeys.forEach { $0.setTitleColor(isLight ? .black : .white, for: .normal) }
+            candidateKeys.forEach { key in
+                key.setTitleColor(isLight ? .black : .white, for: .normal)
+                if key.isSelectedCandidate != true {
+                    key.backgroundColor = candidatePillColor(isLight: isLight)
+                }
+            }
             candidateStyleIsLight = isLight
         }
         let displayedRevision = revision
@@ -1065,7 +1080,7 @@ final class KeyboardViewController: UIInputViewController {
                     key.renderedValue = value
                 }
                 if key.isSelectedCandidate == true {
-                    key.backgroundColor = .clear
+                    key.backgroundColor = candidatePillColor(isLight: isLight)
                     key.isSelectedCandidate = false
                 }
                 key.onSelect = { [weak self] in self?.acceptEnglishSuggestion(value) }
@@ -1081,7 +1096,7 @@ final class KeyboardViewController: UIInputViewController {
             }
             let isSelected = selected == index
             if key.isSelectedCandidate != isSelected {
-                key.backgroundColor = isSelected ? UIColor(white: 0.45, alpha: 0.6) : .clear
+                key.backgroundColor = isSelected ? selectedCandidateColor : candidatePillColor(isLight: isLight)
                 key.isSelectedCandidate = isSelected
             }
             if key.actionRevision != displayedRevision || valueChanged {
@@ -1147,6 +1162,9 @@ final class KeyboardViewController: UIInputViewController {
             parts.append("key0.labelColor=\(color(key.titleLabel?.textColor))")
             parts.append("key0.bg=\(color(key.backgroundColor))")
             parts.append("key0.hidden=\(key.isHidden) alpha=\(String(format: "%.2f", key.alpha))")
+            parts.append("key0.labelFrame=\(key.titleLabel.map { rect($0.frame) } ?? "nil")")
+            parts.append("key0.labelAlpha=\(key.titleLabel.map { String(format: "%.2f", $0.alpha) } ?? "nil")")
+            parts.append("key0.labelHidden=\(key.titleLabel.map { "\($0.isHidden)" } ?? "nil")")
         } else {
             parts.append("key0=none")
         }
