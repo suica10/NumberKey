@@ -1326,8 +1326,9 @@ final class KeyboardViewController: UIInputViewController {
         return true
     }
     private func englishSpace() {
+        // スペースでは自動補正しない: 打った文字列をそのまま確定する。
+        // 候補への置き換えは候補帯のタップでのみ行う（build 57〜）。
         pendingAutocorrectUndo = nil
-        autocorrectEnglishWord(delimiter: " ")
         editor.insert(" ")
         renderState()
     }

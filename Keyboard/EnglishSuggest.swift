@@ -113,7 +113,7 @@ struct EnglishLexicon {
         return result
     }
 
-    /// スペース確定時に置き換えてよい確信がある場合だけ修正先を返す。
+    /// 区切り文字での確定時に置き換えてよい確信がある場合だけ修正先を返す（スペースでは使わない）。
     /// 辞書にある単語・短すぎる単語は対象外。距離2は頻度が非常に高い語に限る。
     func autocorrect(for word: String) -> String? {
         guard word.count >= 3, !contains(word) else { return nil }
