@@ -161,13 +161,13 @@ final class KeyboardViewController: UIInputViewController {
         //   adjustedContentInset に乗り、帯の高さ34ptに対して縦方向の
         //   スクロール余地が生まれうる。帯は横専用なので余地を断つ。
         // - isDirectionalLockEnabled: 斜めドラッグを横方向に固定する。
-        // - delaysContentTouches / cancelsTouchesInView は UIKit 既定値
-        //   (true/true) だが、候補選択が「ドラッグでは発火せず、離した
-        //   タップ（touchUpInside）でのみ発火する」前提を明示する。
+        // - delaysContentTouches / パンの cancelsTouchesInView は UIKit
+        //   既定値 (true/true) だが、候補選択が「ドラッグでは発火せず、
+        //   離したタップ（touchUpInside）でのみ発火する」前提を明示する。
         candidateScroll.contentInsetAdjustmentBehavior = .never
         candidateScroll.isDirectionalLockEnabled = true
         candidateScroll.delaysContentTouches = true
-        candidateScroll.cancelsTouchesInView = true
+        candidateScroll.panGestureRecognizer.cancelsTouchesInView = true
         // build 56: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
         // 候補帯の中ではなくルート直下に置く（candidateSizer のコメント
         // 参照）。帯の高さに連動させるため height は candidateScroll の
