@@ -50,8 +50,6 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStripHeight: CGFloat = 34
     /// 現在の状態で帯が占める高さ（非表示なら 0）。
     private var currentCandidateHeight: CGFloat { showsCandidateStrip ? candidateStripHeight : 0 }
-    /// build 51 の高さ検証トレース用：前回記録した署名（変化した時だけ記録する）。
-    private var lastHeightSignature = ""
     // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
     // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
     private var candidateKeys: [CandidateKey] = []
@@ -595,21 +593,6 @@ final class KeyboardViewController: UIInputViewController {
         }
         // 要求高さは関数の先頭で metrics.totalHeight に公開済み。
         // 配置したフレームの合計と常に一致する（build 50）。
-        traceHeightIfChanged()
-    }
-
-    /// 高さ関係の値（要求高さ c・実フレーム高さ b・キャンバス下端 cb・
-    /// 帯の有無 strip）を、署名が変わったときだけ DiagTrace に記録する
-    /// （build 51 の検証用一時コード。次ビルドで DiagTrace ごと削除する）。
-    private func traceHeightIfChanged() {
-        let signature = String(format: "c=%.0f b=%.0f cb=%.0f strip=%d",
-                               heightConstraint?.constant ?? -1,
-                               view.bounds.height,
-                               canvas.frame.maxY,
-                               showsCandidateStrip ? 1 : 0)
-        guard signature != lastHeightSignature else { return }
-        lastHeightSignature = signature
-        DiagTrace.shared.record(event: "h", detail: signature)
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -1139,11 +1122,9 @@ final class KeyboardViewController: UIInputViewController {
         let katakana = kana.applyingTransform(.hiraganaToKatakana, reverse: false) ?? kana
         return kana == katakana ? [kana] : [kana, katakana]
     }
-    /// build 45: 候補キーの未選択ピル背景と選択時背景。.custom ボタンでは
-    /// システム側の見た目が付かないため、スタイルに合わせて自前で塗る。
-    private func candidatePillColor(isLight: Bool) -> UIColor {
-        isLight ? UIColor(white: 1.0, alpha: 0.65) : UIColor(white: 0.32, alpha: 0.55)
-    }
+    /// 選択中（スペース変換でフォーカスされた候補）のハイライト色。
+    /// build 55: 未選択の候補キーは背景なし（文字のみ）に戻した
+    /// （build 45 で付けたピル背景はユーザーの指示で撤去）。
     private var selectedCandidateColor: UIColor { UIColor(white: 0.45, alpha: 0.95) }
     private func renderState(updateMarked: Bool = true) {
         if !isJapanese { refreshEnglishSuggestions() }
@@ -1171,11 +1152,11 @@ final class KeyboardViewController: UIInputViewController {
         while candidateKeys.count < stripCount {
             // build 45: .system ボタンは iOS 27 SDK でホスト側リモートビューに
             // ラベル/マテリアルが合成されず候補欄が空白になる疑いがあるため
-            // .custom に変更し、背景色も自前で塗る。
+            // .custom に変更。背景は build 55 でクリアに戻した（文字のみ）。
             let key = CandidateKey(type: .custom)
             key.titleLabel?.font = .systemFont(ofSize: 17)
             key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
-            key.backgroundColor = candidatePillColor(isLight: traitCollection.userInterfaceStyle == .light)
+            key.backgroundColor = .clear
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
@@ -1188,7 +1169,7 @@ final class KeyboardViewController: UIInputViewController {
             candidateKeys.forEach { key in
                 key.setTitleColor(isLight ? .black : .white, for: .normal)
                 if key.isSelectedCandidate != true {
-                    key.backgroundColor = candidatePillColor(isLight: isLight)
+                    key.backgroundColor = .clear
                 }
             }
             candidateStyleIsLight = isLight
@@ -1204,7 +1185,7 @@ final class KeyboardViewController: UIInputViewController {
                     key.renderedValue = value
                 }
                 if key.isSelectedCandidate == true {
-                    key.backgroundColor = candidatePillColor(isLight: isLight)
+                    key.backgroundColor = .clear
                     key.isSelectedCandidate = false
                 }
                 key.onSelect = { [weak self] in self?.acceptEnglishSuggestion(value) }
@@ -1220,7 +1201,7 @@ final class KeyboardViewController: UIInputViewController {
             }
             let isSelected = selected == index
             if key.isSelectedCandidate != isSelected {
-                key.backgroundColor = isSelected ? selectedCandidateColor : candidatePillColor(isLight: isLight)
+                key.backgroundColor = isSelected ? selectedCandidateColor : .clear
                 key.isSelectedCandidate = isSelected
             }
             if key.actionRevision != displayedRevision || valueChanged {
