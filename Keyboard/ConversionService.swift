@@ -11,10 +11,6 @@ actor ConversionService {
     /// SwiftPM テストでは重みが Bundle.main に無いため RerankScorer.shared
     /// が nil になる。本番では常に nil で、shared が使われる。
     static var scorerOverride: RerankScorer?
-    /// 実機診断用トレースフック（DiagTrace へ中継される）。perfSink と同じ
-    /// 事情でアプリ側が起動時に差し込む（未設定なら無記録）。引数は
-    /// （イベント名, 詳細）。診断が終わったら DiagProbe と一緒に外すこと。
-    static var traceSink: ((String, String) -> Void)?
     private var converter: KanaKanjiConverter?
     private var learningCandidates: [String: Candidate] = [:]
     /// 最後に受け付けた変換リクエストの世代。actor は直列実行なので、古い
@@ -39,18 +35,15 @@ actor ConversionService {
     func candidates(for composition: ComposingText, generation: Int) -> [String]? {
         let target = composition.convertTarget
         if generation < newestGeneration {
-            Self.traceSink?("svc.stale", "gen=\(generation) newest=\(newestGeneration) input=\(target)")
             return nil
         }
         newestGeneration = generation
         guard !composition.isEmpty else {
             learningCandidates.removeAll()
-            Self.traceSink?("svc.empty", "gen=\(generation)")
             return []
         }
         warmUp()
         guard let converter else {
-            Self.traceSink?("svc.noconverter", "gen=\(generation) input=\(target)")
             return []
         }
         learningCandidates.removeAll()
@@ -62,7 +55,6 @@ actor ConversionService {
         // の合計 — 利用者体感に効くのはサービス全体の時間だから。
         guard let scorer = Self.scorerOverride ?? RerankScorer.shared else {
             Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
-            Self.traceSink?("svc.result", "gen=\(generation) input=\(target) count=\(top.count) first=\(top.first ?? "") rerank=off")
             return top
         }
         let reranked = scorer.rerank(top)
@@ -70,7 +62,6 @@ actor ConversionService {
         // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
         let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
         Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
-        Self.traceSink?("svc.result", "gen=\(generation) input=\(target) count=\(corrected.count) first=\(corrected.first ?? "")")
         return corrected
     }
 
@@ -138,32 +129,6 @@ actor ConversionService {
             scores[a] != scores[b] ? scores[a] > scores[b] : a < b
         }
         return order.prefix(12).map { pool[$0] }
-    }
-
-    /// 実機診断用 (DiagProbe から呼ばれる)。本番の世代管理には触れず、
-    /// 「にほんご」の生の変換結果と fullInputCandidates の通過数を返す。
-    /// rawCount が 0 なら変換器/辞書側、raw はあるのに filtered が 0 なら
-    /// こちらのフィルタ側の問題と切り分けられる。
-    func probeConversion() -> (rawCount: Int, rawFirst: [String], filtered: [String]) {
-        warmUp()
-        guard let converter else { return (-1, [], []) }
-        var comp = ComposingText()
-        comp.insertAtCursorPosition("nihongo", inputStyle: .roman2kana)
-        let results = converter.requestCandidates(comp, options: .init(
-            N_best: 4,
-            requireJapanesePrediction: .disabled,
-            requireEnglishPrediction: .disabled,
-            keyboardLanguage: .ja_JP,
-            englishCandidateInRoman2KanaInput: false,
-            learningType: .inputAndOutput,
-            memoryDirectoryURL: memoryDirectoryURL,
-            sharedContainerURL: memoryDirectoryURL,
-            textReplacer: .empty,
-            specialCandidateProviders: [],
-            metadata: .init(versionString: "NumberKey probe")
-        ))
-        let filtered = fullInputCandidates(for: comp, converter: converter)
-        return (results.mainResults.count, results.mainResults.prefix(3).map { $0.text }, filtered)
     }
 
     func learn(_ text: String) {

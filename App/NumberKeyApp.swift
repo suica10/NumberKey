@@ -12,8 +12,6 @@ struct SettingsView: View {
     @State private var packEnabled: [DictionaryPackID: Bool] = [:]
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
-    @State private var diagText: String?
-    @State private var diagCSVURL: URL?
     @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
     /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
     private var displayState: PurchaseState { store.isPurchased ? .unlocked : gateState }
@@ -86,22 +84,6 @@ struct SettingsView: View {
                     Text("日本語の未確定文字は、この入力欄に直接表示されます。スペースで変換し、候補タップまたは確定キーで確定します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("診断") {
-                    if let diagText {
-                        Text(diagText)
-                            .font(.system(.footnote, design: .monospaced))
-                            .textSelection(.enabled)
-                    } else {
-                        Text("診断データはまだありません。キーボードを開いて入力すると記録されます。")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    Button("再読み込み") { loadDiagText() }
-                    if let diagCSVURL {
-                        ShareLink(item: diagCSVURL) {
-                            Label("診断CSVを共有", systemImage: "square.and.arrow.up")
-                        }
-                    }
-                }
                 Section("使い方") {
                     Text("「123」の長押し：カーソルを左右に移動")
                     Text("地球儀：日本語／English切り替え（長押しメニューで次のキーボードへ）")
@@ -122,7 +104,6 @@ struct SettingsView: View {
             .navigationTitle("One Keyboard")
             .onChange(of: layout) { _, value in KeyboardSettings().apply(value) }
             .task {
-                loadDiagText()
                 packEnabled = DictionaryPackID.allCases.reduce(into: [:]) { $0[$1] = packStore.isEnabled($1) }
                 await store.refresh()
                 // 購入確認で unlocked フラグが書かれた可能性があるので判定し直す。
@@ -148,16 +129,6 @@ struct SettingsView: View {
         Button("購入を復元") { Task { await store.restore() } }
             .disabled(store.isWorking)
         if store.isWorking { ProgressView() }
-    }
-    /// キーボード拡張が App Group に書いた診断結果 (diag-probe.txt) を読む。
-    /// あわせて共有用 CSV (diag-probe.csv) の有無も確認する。
-    private func loadDiagText() {
-        guard let dir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: KeyboardSettings.appGroupIdentifier)
-        else { diagText = nil; diagCSVURL = nil; return }
-        diagText = try? String(contentsOf: dir.appendingPathComponent("diag-probe.txt"), encoding: .utf8)
-        let csv = dir.appendingPathComponent("diag-probe.csv")
-        diagCSVURL = FileManager.default.fileExists(atPath: csv.path) ? csv : nil
     }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),

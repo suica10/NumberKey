@@ -35,13 +35,6 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateScroll = UIScrollView()
     // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
     // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
-    // Layout snapshots are deduplicated; build 47's paired render samples are not.
-    private var lastBarGeometrySignature: String?
-    // Build 47: non-interactive overlays; never change the candidate layout.
-    // Build 48: マーカー C は candidateStack 内にあったためコンテナ廃止に伴い削除。
-    private let barMarkerRoot = KeyboardViewController.makeBarMarker("A")
-    private let barMarkerScroll = KeyboardViewController.makeBarMarker("B")
-    private var barDiagnosticSample = 0
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
     private let perfLabel = UILabel()
@@ -110,8 +103,6 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
         ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
-        // 実機診断: ライブ変換パスのトレースを DiagTrace に集約する。
-        ConversionService.traceSink = { event, detail in DiagTrace.shared.record(event: event, detail: detail) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
         // 英単語リスト（約1MB）の読み込みは起動処理を止めないよう非同期で行う。
         // 起動が重いとアップデート直後の初回表示で iOS に見限られ、代わりに
@@ -169,7 +160,6 @@ final class KeyboardViewController: UIInputViewController {
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
-        DiagProbe.runOnce(service: service)
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
         // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
@@ -188,9 +178,6 @@ final class KeyboardViewController: UIInputViewController {
         }, for: .touchUpInside)
         expiredView.addSubview(expiredOpenButton)
         view.addSubview(expiredView)
-        view.addSubview(barMarkerRoot)
-        candidateScroll.addSubview(barMarkerScroll)
-        layoutBarMarkers()
         refreshPurchaseState()
         rebuildCanvas()
         // 初期高さも実レイアウトと同じ計算式から決める (270 の決め打ちは廃止)。
@@ -477,7 +464,6 @@ final class KeyboardViewController: UIInputViewController {
         }
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
-        layoutBarMarkers()
         canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
         expiredView.isHidden = !purchaseExpired
@@ -492,7 +478,6 @@ final class KeyboardViewController: UIInputViewController {
         }
         let height = topHeight + perfHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
-        traceBarGeometry(source: "layout")
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -921,7 +906,6 @@ final class KeyboardViewController: UIInputViewController {
         let inputStamp = PerfProbe.stamp()
         revision += 1
         let requestRevision = revision, snapshot = composition
-        DiagTrace.shared.record(event: "vc.schedule", detail: "rev=\(requestRevision) input=\(snapshot.convertTarget) empty=\(snapshot.isEmpty)")
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
         // 残したまま新しい変換結果を待つ。
@@ -939,27 +923,22 @@ final class KeyboardViewController: UIInputViewController {
             // 出現が遅れるので最小限にし、古い変換の実行自体はサービス側の
             // 世代ゲートで省く。
             do { try await Task.sleep(nanoseconds: 4_000_000) } catch {
-                DiagTrace.shared.record(event: "vc.sleepcancel", detail: "rev=\(requestRevision)")
                 return
             }
             guard !Task.isCancelled else {
-                DiagTrace.shared.record(event: "vc.cancelled", detail: "rev=\(requestRevision)")
                 return
             }
             // 世代遅れでスキップされたら nil。状態は新しいタスクが持つので触らない。
             let awaitStamp = PerfProbe.stamp()
             let serviceResult = await service.candidates(for: snapshot, generation: requestRevision)
             guard let result = serviceResult else {
-                DiagTrace.shared.record(event: "vc.stale", detail: "rev=\(requestRevision) input=\(snapshot.convertTarget)")
                 return
             }
             PerfProbe.shared.record("await", since: awaitStamp)
             guard !Task.isCancelled, let self else {
-                DiagTrace.shared.record(event: "vc.dropped", detail: "rev=\(requestRevision) reason=cancelled-or-gone")
                 return
             }
             guard self.revision == requestRevision else {
-                DiagTrace.shared.record(event: "vc.dropped", detail: "rev=\(requestRevision) nowRev=\(self.revision) reason=revision-mismatch")
                 return
             }
             // ここで syncHostChange() はしない。変換中にホスト側で編集があれば
@@ -976,7 +955,6 @@ final class KeyboardViewController: UIInputViewController {
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             let hadWaitingSpace = self.waitingSpaceCount > 0
             self.waitingSpaceCount = 0
-            DiagTrace.shared.record(event: "vc.applied", detail: "rev=\(requestRevision) svcCount=\(result.count) finalCount=\(newCandidates.count) first=\(newCandidates.first ?? "") changed=\(candidatesChanged) render=\(candidatesChanged || hadWaitingSpace)")
             // 候補が前回と同一なら候補欄の再描画は不要（体感の遅さ対策）。
             if candidatesChanged || hadWaitingSpace { self.renderState() }
             self.updatePerfOverlay()
@@ -1145,76 +1123,8 @@ final class KeyboardViewController: UIInputViewController {
                 candidateScroll.setContentOffset(.zero, animated: false)
             }
         }
-        DiagTrace.shared.record(event: "bar.render", detail: "items=\(candidateKeys.count) stripCount=\(stripCount) showsStrip=\(showsCandidateStrip) composing=\(!composition.isEmpty) ja=\(isJapanese) rev=\(revision)")
-        // Only order our diagnostic overlays above content; do not reorder product views.
-        candidateScroll.bringSubviewToFront(barMarkerScroll)
-        barDiagnosticSample += 1
-        let sample = barDiagnosticSample
-        let requestedRevision = revision
-        let sampledAt = ProcessInfo.processInfo.systemUptime
-        traceBarGeometry(source: "render sample=\(sample) requestRev=\(requestedRevision)", force: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self else { return }
-            let elapsed = ProcessInfo.processInfo.systemUptime - sampledAt
-            self.traceBarGeometry(source: "render.delayed sample=\(sample) requestRev=\(requestedRevision) elapsed=\(elapsed)", force: true)
-        }
     }
 
-    private static func makeBarMarker(_ title: String) -> UILabel {
-        let marker = UILabel()
-        marker.text = title
-        marker.font = .boldSystemFont(ofSize: 14)
-        marker.textAlignment = .center
-        marker.textColor = .white
-        marker.backgroundColor = .red
-        marker.isUserInteractionEnabled = false
-        marker.isAccessibilityElement = false
-        return marker
-    }
-
-    private func layoutBarMarkers() {
-        // Separate x positions allow both markers to be distinguished in one screenshot.
-        // B is a direct scroll child and scrolls in UIScrollView's content
-        // coordinates. No inset/offset compensation is applied.
-        barMarkerRoot.frame = CGRect(x: 70, y: candidateScroll.frame.minY + 5, width: 24, height: 24)
-        barMarkerScroll.frame = CGRect(x: 38, y: 5, width: 24, height: 24)
-    }
-
-    /// 実機診断 (build 44〜47): 候補欄のピクセル側の状態を取るトレース。
-    /// build 48: ユーザー指示により固定長でコンパクト化した。build 44〜47 の
-    /// 形式は祖先チェーン全ダンプ (transform 行列等) で1イベントが1万字を
-    /// 超えていたため廃止し、判定に必要な最小フィールドだけを残す
-    /// (1イベント数百文字以内)。build 47 で model/presentation・inset・
-    /// offset は全て正常と確定済みなので、それらの採取もやめた。
-    /// Layout は差分のみ、render と約0.5秒後のペアは同値でも両方残す。
-    private func traceBarGeometry(source: String, force: Bool = false) {
-        func rect(_ r: CGRect) -> String {
-            String(format: "%.0f,%.0f,%.0f,%.0f", r.origin.x, r.origin.y, r.size.width, r.size.height)
-        }
-        func winRect(of v: UIView) -> String {
-            v.window.map { rect(v.convert(v.bounds, to: $0)) } ?? "nil"
-        }
-        var parts: [String] = []
-        parts.append("rev=\(revision)")
-        parts.append("heightC=\(heightConstraint.map { String(format: "%.0f", $0.constant) } ?? "nil")")
-        parts.append("scroll.frame=\(rect(candidateScroll.frame))")
-        parts.append("scroll.hidden=\(candidateScroll.isHidden)")
-        parts.append("scroll.size=\(String(format: "%.0f,%.0f", candidateScroll.contentSize.width, candidateScroll.contentSize.height))")
-        parts.append("keys=\(candidateKeys.count)")
-        if let key = candidateKeys.first {
-            parts.append("key0.frame=\(rect(key.frame))")
-            parts.append("key0.win=\(winRect(of: key))")
-            parts.append("key0.title=\(key.currentTitle ?? "nil")")
-        } else {
-            parts.append("key0=none")
-        }
-        parts.append("mA.win=\(winRect(of: barMarkerRoot))")
-        parts.append("mB.win=\(winRect(of: barMarkerScroll))")
-        let signature = parts.joined(separator: " ")
-        guard force || signature != lastBarGeometrySignature else { return }
-        lastBarGeometrySignature = signature
-        DiagTrace.shared.record(event: "bar.geometry", detail: "src=\(source) " + signature)
-    }
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
     private func updatePerfOverlay() {
         guard PerfProbe.enabled else { return }
