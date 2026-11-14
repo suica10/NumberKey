@@ -33,7 +33,9 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
-    private let candidateStack = UIStackView()
+    // build 46: 候補欄の内部配置は Auto Layout を廃止し手動フレームにしたため、
+    // candidateStack は UIStackView ではなく素の UIView (名前は差分最小化のため維持)。
+    private let candidateStack = UIView()
     // 実機診断 (build 44): bar.geometry の値が変わったときだけ記録するための署名。
     private var lastBarGeometrySignature: String?
     private var candidateKeys: [CandidateKey] = []
@@ -127,17 +129,13 @@ final class KeyboardViewController: UIInputViewController {
         }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
-        candidateStack.axis = .horizontal
-        candidateStack.spacing = 8
-        candidateStack.translatesAutoresizingMaskIntoConstraints = false
+        // build 46: build 43–45 の実機トレースで、データ経路・モデルフレーム・
+        // タイトル/色/ラベル寸法は全て正常なのに候補欄だけが画面に合成されない
+        // ことが確定した。候補欄はこのキーボードで唯一 Auto Layout
+        // (contentLayoutGuide/frameLayoutGuide へのピン留め) を使っていた箇所で、
+        // 他は全て手動フレームで正常に描画されている。容疑クラスごと排除する
+        // ため、制約は廃止し、キー配置は renderState で手動計算する。
         candidateScroll.addSubview(candidateStack)
-        NSLayoutConstraint.activate([
-            candidateStack.leadingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.leadingAnchor, constant: 6),
-            candidateStack.trailingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.trailingAnchor, constant: -6),
-            candidateStack.topAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.topAnchor),
-            candidateStack.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
-            candidateStack.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor)
-        ])
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -1042,7 +1040,6 @@ final class KeyboardViewController: UIInputViewController {
         let stripCount = isJapanese ? candidates.count : englishSuggestions.count
         while candidateKeys.count > stripCount {
             let key = candidateKeys.removeLast()
-            candidateStack.removeArrangedSubview(key)
             key.removeFromSuperview()
         }
         while candidateKeys.count < stripCount {
@@ -1057,7 +1054,7 @@ final class KeyboardViewController: UIInputViewController {
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
             candidateKeys.append(key)
-            candidateStack.addArrangedSubview(key)
+            candidateStack.addSubview(key)
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
@@ -1111,6 +1108,24 @@ final class KeyboardViewController: UIInputViewController {
                 key.actionRevision = displayedRevision
             }
         }
+        // build 46: 手動フレーム配置 (旧 UIStackView + 制約配置の代替)。
+        // 左端 6pt から 8pt 間隔でキーを並べ、コンテナ寸法と contentSize を
+        // 内容幅に合わせる (右端にも旧制約と同じ 6pt の余白を残す)。
+        do {
+            var x: CGFloat = 6
+            let stripHeight: CGFloat = 34
+            for key in candidateKeys {
+                var w = key.intrinsicContentSize.width
+                if w <= 0 {
+                    w = key.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: stripHeight)).width
+                }
+                key.frame = CGRect(x: x, y: 0, width: w, height: stripHeight)
+                x += w + 8
+            }
+            let contentWidth = candidateKeys.isEmpty ? 0 : x - 8 + 6
+            candidateStack.frame = CGRect(x: 0, y: 0, width: contentWidth, height: stripHeight)
+            candidateScroll.contentSize = CGSize(width: contentWidth, height: stripHeight)
+        }
         PerfProbe.shared.record("strip", since: stripStamp)
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
         // （選択ハイライトだけの変化では戻さない。）
@@ -1148,7 +1163,7 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             parts.append("scroll.win=nil")
         }
-        parts.append("stack.frame=\(rect(candidateStack.frame)) arranged=\(candidateStack.arrangedSubviews.count)")
+        parts.append("stack.frame=\(rect(candidateStack.frame)) arranged=\(candidateStack.subviews.count)")
         if let key = candidateKeys.first {
             parts.append("key0.frame=\(rect(key.frame))")
             if let window = key.window {
