@@ -31,10 +31,20 @@ final class KeyboardViewController: UIInputViewController {
     private var conversionTask: Task<Void, Never>?
     private var deleteTimer: Timer?
     /// build 52: ルートビュー（loadView で差し替える KeyboardInputView）。
-    /// 要求高さはこのビューの requestedHeight 経由でだけ公開する。
+    /// 要求高さはこのビューの requestedHeight で公開する。build 53 からは
+    /// ルートの高さ制約（優先度999）にも同じ値を同時に出す（二重化）。
     private var keyboardInputView: KeyboardInputView?
+    /// build 53: 復活させたルート高さ制約。定数は updateRequestedHeight()
+    /// が requestedHeight と同時に更新する（単一の公開地点）。
+    private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
+    /// build 53: 候補帯内の Auto Layout 足場（不可視の sizer view）。
+    /// 候補キーの配置はビルド48の「scroll 直下・手動フレーム」のまま崩さず、
+    /// この sizer は candidateScroll の contentSize を制約経由で決める
+    /// ためだけに置く。幅制約は renderState が候補コンテンツ総幅に合わせる。
+    private let candidateSizer = UIView()
+    private var candidateSizerWidthConstraint: NSLayoutConstraint?
     /// 候補バーの高さ（表示時）。帯の高さはこの定数を唯一の情報源とし、
     /// 要求高さ・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
     /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
@@ -112,15 +122,23 @@ final class KeyboardViewController: UIInputViewController {
 
     /// build 52: ルートビューを KeyboardInputView に差し替え、inputView
     /// としても同じインスタンスをインストールする（viewDidLoad で
-    /// サブビューが載る前に行う）。高さの公開はこのビューの
-    /// requestedHeight に一本化し、旧来の heightAnchor 制約（優先度999）
-    /// は廃止した——実機トレースで制約がホスト既定高さ（226/216）に
-    /// 一度も勝てないことが確定したため（KeyboardInputView.swift 参照）。
+    /// サブビューが載る前に行う）。
+    /// build 53: 高さ制約（優先度999）を復活させ、requestedHeight と
+    /// 二重に公開する。実機CSVの比較で、ビルド45では view 高さが要求に
+    /// 追随していたのに、ビルド46（候補帯内部の Auto Layout → 手動
+    /// フレーム化）以降はホスト既定高さ（226/216）に固定されることが
+    /// 確定した。帯サブツリー内の Auto Layout 制約の存在がルートの高さ
+    /// 交渉の効きを左右している、という作業仮説に基づき、帯内の足場
+    /// （candidateSizer）と制約経路の両方を戻す。
     override func loadView() {
         let input = KeyboardInputView(frame: .zero, inputViewStyle: .default)
         keyboardInputView = input
         view = input
         inputView = input
+        let height = input.heightAnchor.constraint(equalToConstant: input.requestedHeight)
+        height.priority = .init(999)
+        height.isActive = true
+        heightConstraint = height
     }
 
     override func viewDidLoad() {
@@ -148,6 +166,26 @@ final class KeyboardViewController: UIInputViewController {
         }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
+        // build 53: 候補帯内に Auto Layout の足場を復活させる（不可視の
+        // sizer）。ピン留めはビルド45以前の candidateStack と同じ:
+        // leading/trailing/top/bottom を contentLayoutGuide に、height を
+        // frameLayoutGuide の height と等しくする。候補キーはこの上に
+        // 重なる形で従来どおり scroll 直下・手動フレームで配置される
+        // （sizer は操作を受けず、背景も透明）。
+        candidateSizer.backgroundColor = .clear
+        candidateSizer.isUserInteractionEnabled = false
+        candidateSizer.translatesAutoresizingMaskIntoConstraints = false
+        candidateScroll.addSubview(candidateSizer)
+        let sizerWidth = candidateSizer.widthAnchor.constraint(equalToConstant: 0)
+        candidateSizerWidthConstraint = sizerWidth
+        NSLayoutConstraint.activate([
+            candidateSizer.leadingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.leadingAnchor, constant: 6),
+            candidateSizer.trailingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.trailingAnchor, constant: -6),
+            candidateSizer.topAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.topAnchor),
+            candidateSizer.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
+            candidateSizer.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor),
+            sizerWidth,
+        ])
         // build 48: build 47 の実機診断で、scroll 直下のマーカー B とルート直下の
         // マーカー A は表示されるのに、コンテナ candidateStack の子 (マーカー C と
         // 候補キー) だけが一切合成されないことが確定した。CSV 上は stack の
@@ -456,7 +494,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// 要求高さを現在の状態の値に合わせてルートビューへ公開する
-    /// （build 52 で高さ制約から移行。高さの公開はここが唯一の入口）。
+    /// （高さの公開はここが唯一の入口）。build 53 では fitting 経路
+    /// （requestedHeight）と制約経路（heightConstraint、優先度999）の
+    /// 両方に同じ値を同時に出す。
     /// 帯の表示/非表示が切り替わったその場（renderState）からも呼ぶことで、
     /// 高さの変更要求がレイアウトパスの完了を待たず、状態変化と同じ
     /// ターンでホストへ伝わる。force のときは値が同じでも
@@ -467,6 +507,7 @@ final class KeyboardViewController: UIInputViewController {
         let total = layoutMetrics(width: width).totalHeight
         if force || abs(input.requestedHeight - total) > 0.5 {
             input.requestedHeight = total
+            heightConstraint?.constant = total
             input.invalidateIntrinsicContentSize()
             input.setNeedsLayout()
             view.setNeedsLayout()
@@ -1212,8 +1253,12 @@ final class KeyboardViewController: UIInputViewController {
         }
         // build 48: 手動フレーム配置。キーは candidateScroll の直下の子で、
         // frame は scroll のコンテンツ座標そのもの。左端 6pt から 8pt 間隔で
-        // 並べ、contentSize を内容幅に合わせる (右端にも 6pt の余白を残す)。
+        // 並べる (右端にも 6pt の余白を残す)。
         // 配置計算自体は build 46 (コンテナ内配置) から無変更。
+        // build 53: contentSize の手動設定は廃止し、candidateSizer の幅制約
+        // 経由で決まるようにした。sizer は左右 6pt のインセットで
+        // contentLayoutGuide にピン留めされているため、幅の定数は
+        // コンテンツ総幅から 12 を引いた値になる。
         do {
             var x: CGFloat = 6
             let stripHeight = candidateStripHeight
@@ -1226,7 +1271,7 @@ final class KeyboardViewController: UIInputViewController {
                 x += w + 8
             }
             let contentWidth = candidateKeys.isEmpty ? 0 : x - 8 + 6
-            candidateScroll.contentSize = CGSize(width: contentWidth, height: stripHeight)
+            candidateSizerWidthConstraint?.constant = max(0, contentWidth - 12)
         }
         PerfProbe.shared.record("strip", since: stripStamp)
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
