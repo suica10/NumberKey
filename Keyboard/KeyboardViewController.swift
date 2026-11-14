@@ -33,15 +33,14 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
-    // build 46: 候補欄の内部配置は Auto Layout を廃止し手動フレームにしたため、
-    // candidateStack は UIStackView ではなく素の UIView (名前は差分最小化のため維持)。
-    private let candidateStack = UIView()
+    // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
+    // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
     // Layout snapshots are deduplicated; build 47's paired render samples are not.
     private var lastBarGeometrySignature: String?
     // Build 47: non-interactive overlays; never change the candidate layout.
+    // Build 48: マーカー C は candidateStack 内にあったためコンテナ廃止に伴い削除。
     private let barMarkerRoot = KeyboardViewController.makeBarMarker("A")
     private let barMarkerScroll = KeyboardViewController.makeBarMarker("B")
-    private let barMarkerContent = KeyboardViewController.makeBarMarker("C")
     private var barDiagnosticSample = 0
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
@@ -134,13 +133,13 @@ final class KeyboardViewController: UIInputViewController {
         }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
-        // build 46: build 43–45 の実機トレースで、データ経路・モデルフレーム・
-        // タイトル/色/ラベル寸法は全て正常なのに候補欄だけが画面に合成されない
-        // ことが確定した。候補欄はこのキーボードで唯一 Auto Layout
-        // (contentLayoutGuide/frameLayoutGuide へのピン留め) を使っていた箇所で、
-        // 他は全て手動フレームで正常に描画されている。容疑クラスごと排除する
-        // ため、制約は廃止し、キー配置は renderState で手動計算する。
-        candidateScroll.addSubview(candidateStack)
+        // build 48: build 47 の実機診断で、scroll 直下のマーカー B とルート直下の
+        // マーカー A は表示されるのに、コンテナ candidateStack の子 (マーカー C と
+        // 候補キー) だけが一切合成されないことが確定した。CSV 上は stack の
+        // frame/win/hidden/alpha も key0 の model/presentation も全て正常。
+        // build 46 で UIStackView → 素の UIView + 手動フレームに替えても中身が
+        // 出なかったため、コンテナそのものを廃止し、候補キーは renderState で
+        // candidateScroll の直下に直接配置する。
         view.addSubview(canvas)
         canvas.onText = { [weak self] in self?.insert($0) }
         canvas.onAction = { [weak self] in self?.handle($0) }
@@ -191,7 +190,6 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(expiredView)
         view.addSubview(barMarkerRoot)
         candidateScroll.addSubview(barMarkerScroll)
-        candidateStack.addSubview(barMarkerContent)
         layoutBarMarkers()
         refreshPurchaseState()
         rebuildCanvas()
@@ -1064,7 +1062,8 @@ final class KeyboardViewController: UIInputViewController {
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
             candidateKeys.append(key)
-            candidateStack.addSubview(key)
+            // build 48: コンテナ (旧 candidateStack) を介さず scroll 直下へ直接置く。
+            candidateScroll.addSubview(key)
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
@@ -1118,9 +1117,10 @@ final class KeyboardViewController: UIInputViewController {
                 key.actionRevision = displayedRevision
             }
         }
-        // build 46: 手動フレーム配置 (旧 UIStackView + 制約配置の代替)。
-        // 左端 6pt から 8pt 間隔でキーを並べ、コンテナ寸法と contentSize を
-        // 内容幅に合わせる (右端にも旧制約と同じ 6pt の余白を残す)。
+        // build 48: 手動フレーム配置。キーは candidateScroll の直下の子で、
+        // frame は scroll のコンテンツ座標そのもの。左端 6pt から 8pt 間隔で
+        // 並べ、contentSize を内容幅に合わせる (右端にも 6pt の余白を残す)。
+        // 配置計算自体は build 46 (コンテナ内配置) から無変更。
         do {
             var x: CGFloat = 6
             let stripHeight: CGFloat = 34
@@ -1133,7 +1133,6 @@ final class KeyboardViewController: UIInputViewController {
                 x += w + 8
             }
             let contentWidth = candidateKeys.isEmpty ? 0 : x - 8 + 6
-            candidateStack.frame = CGRect(x: 0, y: 0, width: contentWidth, height: stripHeight)
             candidateScroll.contentSize = CGSize(width: contentWidth, height: stripHeight)
         }
         PerfProbe.shared.record("strip", since: stripStamp)
@@ -1149,7 +1148,6 @@ final class KeyboardViewController: UIInputViewController {
         DiagTrace.shared.record(event: "bar.render", detail: "items=\(candidateKeys.count) stripCount=\(stripCount) showsStrip=\(showsCandidateStrip) composing=\(!composition.isEmpty) ja=\(isJapanese) rev=\(revision)")
         // Only order our diagnostic overlays above content; do not reorder product views.
         candidateScroll.bringSubviewToFront(barMarkerScroll)
-        candidateStack.bringSubviewToFront(barMarkerContent)
         barDiagnosticSample += 1
         let sample = barDiagnosticSample
         let requestedRevision = revision
@@ -1175,94 +1173,43 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func layoutBarMarkers() {
-        // Separate x positions allow all three to be distinguished in one screenshot.
-        // B is a direct scroll child, outside candidateStack, but still scrolls in
-        // UIScrollView's content coordinates. No inset/offset compensation is applied.
+        // Separate x positions allow both markers to be distinguished in one screenshot.
+        // B is a direct scroll child and scrolls in UIScrollView's content
+        // coordinates. No inset/offset compensation is applied.
         barMarkerRoot.frame = CGRect(x: 70, y: candidateScroll.frame.minY + 5, width: 24, height: 24)
         barMarkerScroll.frame = CGRect(x: 38, y: 5, width: 24, height: 24)
-        barMarkerContent.frame = CGRect(x: 6, y: 5, width: 24, height: 24)
     }
 
-    private func barMarkerGeometry(_ name: String, marker: UIView) -> String {
-        var chain: [String] = []
-        var ancestor: UIView? = marker
-        while let v = ancestor {
-            let windowRect = v.window.map { String(describing: v.convert(v.bounds, to: $0)) } ?? "nil"
-            chain.append("\(type(of: v)){frame=\(v.frame) bounds=\(v.bounds) win=\(windowRect) hidden=\(v.isHidden) alpha=\(v.alpha) clips=\(v.clipsToBounds) masksToBounds=\(v.layer.masksToBounds) mask=\(v.layer.mask != nil) transform=\(v.transform) layerTransform=\(v.layer.transform)}")
-            ancestor = v.superview
-        }
-        return "marker\(name)=" + chain.joined(separator: ">")
-    }
-
-    private func barLayerGeometry(_ name: String, layer: CALayer) -> String {
-        func state(_ value: CALayer) -> String {
-            "bounds=\(value.bounds) position=\(value.position) opacity=\(value.opacity)"
-        }
-        let presentation = layer.presentation().map { state($0) } ?? "nil"
-        return "\(name).model={\(state(layer))} \(name).presentation={\(presentation)}"
-    }
-    /// 実機診断 (build 44): build 43 のトレースでデータ経路 (vc.schedule →
-    /// svc.result → vc.applied → bar.render) は全段正常と確定したのに、画面の
-    /// 候補欄は空のまま。残る容疑はピクセル側 (帯の実ジオメトリ・クリッピング・
-    /// キーの不可視描画) なので、レイアウト確定後と renderState のたびに
+    /// 実機診断 (build 44〜47): 候補欄のピクセル側の状態を取るトレース。
+    /// build 48: ユーザー指示により固定長でコンパクト化した。build 44〜47 の
+    /// 形式は祖先チェーン全ダンプ (transform 行列等) で1イベントが1万字を
+    /// 超えていたため廃止し、判定に必要な最小フィールドだけを残す
+    /// (1イベント数百文字以内)。build 47 で model/presentation・inset・
+    /// offset は全て正常と確定済みなので、それらの採取もやめた。
     /// Layout は差分のみ、render と約0.5秒後のペアは同値でも両方残す。
     private func traceBarGeometry(source: String, force: Bool = false) {
         func rect(_ r: CGRect) -> String {
-            String(format: "%.1f,%.1f,%.1f,%.1f", r.origin.x, r.origin.y, r.size.width, r.size.height)
+            String(format: "%.0f,%.0f,%.0f,%.0f", r.origin.x, r.origin.y, r.size.width, r.size.height)
         }
-        func color(_ c: UIColor?) -> String { c.map { String(describing: $0) } ?? "nil" }
+        func winRect(of v: UIView) -> String {
+            v.window.map { rect(v.convert(v.bounds, to: $0)) } ?? "nil"
+        }
         var parts: [String] = []
         parts.append("rev=\(revision)")
-        parts.append("view=\(rect(view.frame))")
-        parts.append("inputView=\(inputView.map { rect($0.frame) } ?? "nil")")
-        parts.append("winFrame=\(view.window.map { rect($0.frame) } ?? "nil")")
-        parts.append("heightC=\(heightConstraint.map { String(format: "%.1f", $0.constant) } ?? "nil")")
+        parts.append("heightC=\(heightConstraint.map { String(format: "%.0f", $0.constant) } ?? "nil")")
         parts.append("scroll.frame=\(rect(candidateScroll.frame))")
-        parts.append("scroll.bounds=\(rect(candidateScroll.bounds))")
-        parts.append("scroll.contentOffset=\(candidateScroll.contentOffset)")
-        parts.append("scroll.contentInset=\(candidateScroll.contentInset)")
-        parts.append("scroll.adjustedContentInset=\(candidateScroll.adjustedContentInset)")
-        parts.append("root.safeAreaInsets=\(view.safeAreaInsets)")
-        parts.append(barLayerGeometry("scroll", layer: candidateScroll.layer))
-        parts.append("scroll.contentSize=\(String(format: "%.1f,%.1f", candidateScroll.contentSize.width, candidateScroll.contentSize.height))")
-        parts.append("scroll.hidden=\(candidateScroll.isHidden) alpha=\(String(format: "%.2f", candidateScroll.alpha))")
-        if let window = candidateScroll.window {
-            parts.append("scroll.win=\(rect(candidateScroll.convert(candidateScroll.bounds, to: window)))")
-        } else {
-            parts.append("scroll.win=nil")
-        }
-        parts.append("stack.frame=\(rect(candidateStack.frame)) arranged=\(candidateStack.subviews.count)")
+        parts.append("scroll.hidden=\(candidateScroll.isHidden)")
+        parts.append("scroll.size=\(String(format: "%.0f,%.0f", candidateScroll.contentSize.width, candidateScroll.contentSize.height))")
+        parts.append("keys=\(candidateKeys.count)")
         if let key = candidateKeys.first {
-            parts.append(barLayerGeometry("key0", layer: key.layer))
-            parts.append("key0.actionRev=\(key.actionRevision)")
             parts.append("key0.frame=\(rect(key.frame))")
-            if let window = key.window {
-                parts.append("key0.win=\(rect(key.convert(key.bounds, to: window)))")
-            } else {
-                parts.append("key0.win=nil")
-            }
+            parts.append("key0.win=\(winRect(of: key))")
             parts.append("key0.title=\(key.currentTitle ?? "nil")")
-            parts.append("key0.label=\(key.titleLabel?.text ?? "nil")")
-            parts.append("key0.titleColor=\(color(key.titleColor(for: .normal)))")
-            parts.append("key0.labelColor=\(color(key.titleLabel?.textColor))")
-            parts.append("key0.bg=\(color(key.backgroundColor))")
-            parts.append("key0.hidden=\(key.isHidden) alpha=\(String(format: "%.2f", key.alpha))")
-            parts.append("key0.labelFrame=\(key.titleLabel.map { rect($0.frame) } ?? "nil")")
-            parts.append("key0.labelAlpha=\(key.titleLabel.map { String(format: "%.2f", $0.alpha) } ?? "nil")")
-            parts.append("key0.labelHidden=\(key.titleLabel.map { "\($0.isHidden)" } ?? "nil")")
         } else {
             parts.append("key0=none")
         }
-        var chain: [String] = []
-        var ancestor = candidateScroll.superview
-        while let v = ancestor, chain.count < 8 {
-            chain.append("\(type(of: v))(h=\(v.isHidden ? 1 : 0),a=\(String(format: "%.2f", v.alpha)))")
-            ancestor = v.superview
-        }
-        parts.append("chain=" + chain.joined(separator: ">"))
-        parts.append(barMarkerGeometry("A", marker: barMarkerRoot))
-        parts.append(barMarkerGeometry("B", marker: barMarkerScroll))
-        parts.append(barMarkerGeometry("C", marker: barMarkerContent))
+        parts.append("mA.win=\(winRect(of: barMarkerRoot))")
+        parts.append("mB.win=\(winRect(of: barMarkerScroll))")
         let signature = parts.joined(separator: " ")
         guard force || signature != lastBarGeometrySignature else { return }
         lastBarGeometrySignature = signature
