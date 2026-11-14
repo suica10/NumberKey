@@ -34,6 +34,8 @@ final class KeyboardViewController: UIInputViewController {
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
+    // 実機診断 (build 44): bar.geometry の値が変わったときだけ記録するための署名。
+    private var lastBarGeometrySignature: String?
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
     private let perfLabel = UILabel()
@@ -484,6 +486,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         let height = topHeight + perfHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
+        traceBarGeometry(source: "layout")
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -1104,6 +1107,60 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
         DiagTrace.shared.record(event: "bar.render", detail: "items=\(candidateKeys.count) stripCount=\(stripCount) showsStrip=\(showsCandidateStrip) composing=\(!composition.isEmpty) ja=\(isJapanese) rev=\(revision)")
+        traceBarGeometry(source: "render")
+    }
+    /// 実機診断 (build 44): build 43 のトレースでデータ経路 (vc.schedule →
+    /// svc.result → vc.applied → bar.render) は全段正常と確定したのに、画面の
+    /// 候補欄は空のまま。残る容疑はピクセル側 (帯の実ジオメトリ・クリッピング・
+    /// キーの不可視描画) なので、レイアウト確定後と renderState のたびに
+    /// 候補バー周辺の実寸・実状態を採取し、値が変わったときだけ残す。
+    private func traceBarGeometry(source: String) {
+        func rect(_ r: CGRect) -> String {
+            String(format: "%.1f,%.1f,%.1f,%.1f", r.origin.x, r.origin.y, r.size.width, r.size.height)
+        }
+        func color(_ c: UIColor?) -> String { c.map { String(describing: $0) } ?? "nil" }
+        var parts: [String] = []
+        parts.append("view=\(rect(view.frame))")
+        parts.append("inputView=\(inputView.map { rect($0.frame) } ?? "nil")")
+        parts.append("winFrame=\(view.window.map { rect($0.frame) } ?? "nil")")
+        parts.append("heightC=\(heightConstraint.map { String(format: "%.1f", $0.constant) } ?? "nil")")
+        parts.append("scroll.frame=\(rect(candidateScroll.frame))")
+        parts.append("scroll.bounds=\(rect(candidateScroll.bounds))")
+        parts.append("scroll.contentSize=\(String(format: "%.1f,%.1f", candidateScroll.contentSize.width, candidateScroll.contentSize.height))")
+        parts.append("scroll.hidden=\(candidateScroll.isHidden) alpha=\(String(format: "%.2f", candidateScroll.alpha))")
+        if let window = candidateScroll.window {
+            parts.append("scroll.win=\(rect(candidateScroll.convert(candidateScroll.bounds, to: window)))")
+        } else {
+            parts.append("scroll.win=nil")
+        }
+        parts.append("stack.frame=\(rect(candidateStack.frame)) arranged=\(candidateStack.arrangedSubviews.count)")
+        if let key = candidateKeys.first {
+            parts.append("key0.frame=\(rect(key.frame))")
+            if let window = key.window {
+                parts.append("key0.win=\(rect(key.convert(key.bounds, to: window)))")
+            } else {
+                parts.append("key0.win=nil")
+            }
+            parts.append("key0.title=\(key.currentTitle ?? "nil")")
+            parts.append("key0.label=\(key.titleLabel?.text ?? "nil")")
+            parts.append("key0.titleColor=\(color(key.titleColor(for: .normal)))")
+            parts.append("key0.labelColor=\(color(key.titleLabel?.textColor))")
+            parts.append("key0.bg=\(color(key.backgroundColor))")
+            parts.append("key0.hidden=\(key.isHidden) alpha=\(String(format: "%.2f", key.alpha))")
+        } else {
+            parts.append("key0=none")
+        }
+        var chain: [String] = []
+        var ancestor = candidateScroll.superview
+        while let v = ancestor, chain.count < 8 {
+            chain.append("\(type(of: v))(h=\(v.isHidden ? 1 : 0),a=\(String(format: "%.2f", v.alpha)))")
+            ancestor = v.superview
+        }
+        parts.append("chain=" + chain.joined(separator: ">"))
+        let signature = parts.joined(separator: " ")
+        guard signature != lastBarGeometrySignature else { return }
+        lastBarGeometrySignature = signature
+        DiagTrace.shared.record(event: "bar.geometry", detail: "src=\(source) " + signature)
     }
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
     private func updatePerfOverlay() {
