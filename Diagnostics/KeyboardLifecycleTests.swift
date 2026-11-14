@@ -86,6 +86,11 @@ final class KeyboardLifecycleTests: XCTestCase {
         let enter = try key("改行", controller)
         XCTAssertEqual(one.bounds.width, q.bounds.width, accuracy: 0.5)
         XCTAssertEqual(one.bounds.height, 38, accuracy: 0.5)
+        // 本体行は純正キーボード準拠: 402pt 幅でキー高 43pt / 行ピッチ 54pt。
+        // 数字行は純正に無い補助行として従来の 38pt を保つ (上の検証)。
+        XCTAssertEqual(q.bounds.height, 43, accuracy: 0.5)
+        let a = try key("a", controller)
+        XCTAssertEqual(a.frame.minY - q.frame.minY, 54, accuracy: 0.5)
         XCTAssertEqual(one.titleColor(for: .normal), UIColor.white)
         XCTAssertEqual(one.backgroundColor, UIColor(white: 0.38, alpha: 1))
         XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 4)

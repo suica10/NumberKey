@@ -45,7 +45,7 @@ struct SettingsView: View {
                     }
                     Toggle("画像に合わせたキーの高さ", isOn: Binding(
                         get: { layout.keyHeight == 0 },
-                        set: { layout.keyHeight = $0 ? 0 : 38 }))
+                        set: { layout.keyHeight = $0 ? 0 : 43 }))
                     if layout.keyHeight != 0 {
                         HStack {
                             Text("高さ")

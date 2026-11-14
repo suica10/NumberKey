@@ -5,6 +5,8 @@ enum KeyboardAction { case shift, delete, symbols, symbolPage, space, enter, pas
 final class KeyboardKey: UIButton {
     var normalColor: UIColor = .darkGray
     var pressedColor: UIColor = .gray
+    /// shadowPath を設定済みのサイズ。サイズが変わったときだけ張り直す。
+    var shadowSize: CGSize = .zero
     override var isHighlighted: Bool {
         didSet { backgroundColor = isHighlighted ? pressedColor : normalColor }
     }
@@ -22,6 +24,13 @@ final class KeyboardCanvas: UIView {
     private var settings = LayoutSettings.defaults
     private var characterRows: [[KeyboardKey]] = []
     private var values: [[String]] = []
+    /// シフト切替用に configure 時へ先行計算したタイトル表。切替のたびに
+    /// uppercased() を全キーへ計算し直さないためのキャッシュ。
+    private var normalTitles: [[String]] = []
+    private var shiftedTitles: [[String]] = []
+    private let shiftImage = UIImage(systemName: "shift")
+    private let shiftFillImage = UIImage(systemName: "shift.fill")
+    private let capsImage = UIImage(systemName: "capslock.fill")
     private var shiftButton: KeyboardKey?
     private var deleteButton: KeyboardKey?
     private var spaceButton: KeyboardKey?
@@ -55,6 +64,8 @@ final class KeyboardCanvas: UIView {
         } else {
             values = LayoutSettings.standardRows
         }
+        normalTitles = values
+        shiftedTitles = values.map { row in row.map { $0.uppercased() } }
         let alternates = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")",
                           "１":"！", "２":"＠", "３":"＃", "４":"＄", "５":"％", "６":"＾", "７":"＆", "８":"＊", "９":"（", "０":"）"]
         for row in values {
@@ -138,10 +149,39 @@ final class KeyboardCanvas: UIView {
         return key
     }
 
+    // MARK: - 寸法 (自動レイアウトは純正キーボード準拠)
+    // 基準幅 1206 = 402pt @3x (iPhone 17)。自動 (keyHeight == 0) では
+    // 本体行のキー高 43pt / 行ピッチ 54pt (間隔 11pt) を純正に一致させる。
+    // 数字行は純正に無い One Keyboard の補助行なので従来寸法 (38pt @402) を保つ。
+    // 手動指定 (keyHeight != 0) は従来どおり全行一律で自動より優先される。
+    private func auxKeyHeight(width: CGFloat) -> CGFloat {
+        settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
+    }
+    private func mainKeyHeight(width: CGFloat) -> CGFloat {
+        settings.keyHeight == 0 ? min(58, max(36, width * 129 / 1206)) : CGFloat(settings.keyHeight)
+    }
+    private func rowGap(width: CGFloat) -> CGFloat {
+        settings.keyHeight == 0 ? min(16, max(8, width * 33 / 1206)) : width * 26 / 1206
+    }
+    private func rowHeight(_ row: Int, width: CGFloat) -> CGFloat {
+        row == 0 ? auxKeyHeight(width: width) : mainKeyHeight(width: width)
+    }
+
+    /// キーの影に明示的な shadowPath を与える。パスが無いと、タイトル変更
+    /// などでキーが再描画されるたびに Core Animation がレイヤーのアルファ
+    /// 形状から影を再計算する (オフスクリーンパス)。形は角丸矩形で固定なので
+    /// サイズが変わったときだけ張り直せばよい。
+    private func fixShadow(_ key: KeyboardKey) {
+        guard key.shadowSize != key.frame.size else { return }
+        key.shadowSize = key.frame.size
+        key.layer.shadowPath = UIBezierPath(roundedRect: CGRect(origin: .zero, size: key.frame.size), cornerRadius: 5).cgPath
+    }
+
     func preferredHeight(width: CGFloat) -> CGFloat {
-        let height = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
         let rowCount: CGFloat = symbols ? 4 : 5
-        return height * rowCount + width * 26 / 1206 * (rowCount - 1) + 7
+        return auxKeyHeight(width: width)
+            + mainKeyHeight(width: width) * (rowCount - 1)
+            + rowGap(width: width) * (rowCount - 1) + 7
     }
 
     private var lastLayoutFont: CGFloat = -1
@@ -150,9 +190,14 @@ final class KeyboardCanvas: UIView {
         super.layoutSubviews()
         guard characterRows.count == (symbols ? 3 : 4), bottom.count == 6 else { return }
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
-        let verticalGap = width * 26 / 1206
+        let verticalGap = rowGap(width: width)
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
-        let keyHeight = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
+        // 行ごとの高さと開始 Y (数字行だけ補助行寸法、他は本体行寸法)。
+        let rowHeights = characterRows.indices.map { rowHeight($0, width: width) }
+        var rowYs: [CGFloat] = []
+        var nextY: CGFloat = 3
+        for height in rowHeights { rowYs.append(nextY); nextY += height + verticalGap }
+        let bottomHeight = mainKeyHeight(width: width)
         let font = min(26, max(18, width * 66 / 1206))
         // フォントとシンボル設定は幅が変わったときだけ当て直す（レイアウトの
         // たびに全キーへ設定し直すと、それだけで再描画が走って重くなる）。
@@ -169,16 +214,19 @@ final class KeyboardCanvas: UIView {
             }
             let span = CGFloat(count) * rowWidth + CGFloat(count - 1) * gap
             let start = rowIndex < 2 ? edge : (width - span) / 2
-            let y = 3 + CGFloat(rowIndex) * (keyHeight + verticalGap)
+            let y = rowYs[rowIndex]
             for (column, key) in row.enumerated() {
-                key.frame = CGRect(x: start + CGFloat(column) * (rowWidth + gap), y: y, width: rowWidth, height: keyHeight)
+                key.frame = CGRect(x: start + CGFloat(column) * (rowWidth + gap), y: y, width: rowWidth, height: rowHeights[rowIndex])
+                fixShadow(key)
                 if fontsChanged { key.titleLabel?.font = .systemFont(ofSize: font) }
             }
         }
         let actionRow = symbols ? 2 : 3
-        let actionY = 3 + CGFloat(actionRow) * (keyHeight + verticalGap)
-        shiftButton?.frame = CGRect(x: edge, y: actionY, width: sideWidth, height: keyHeight)
-        deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: actionY, width: sideWidth, height: keyHeight)
+        let actionY = rowYs[actionRow]
+        shiftButton?.frame = CGRect(x: edge, y: actionY, width: sideWidth, height: rowHeights[actionRow])
+        deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: actionY, width: sideWidth, height: rowHeights[actionRow])
+        if let shiftButton { fixShadow(shiftButton) }
+        if let deleteButton { fixShadow(deleteButton) }
         if fontsChanged {
             let icon = UIImage.SymbolConfiguration(pointSize: font + 2, weight: .semibold)
             if symbols {
@@ -191,10 +239,11 @@ final class KeyboardCanvas: UIView {
         let weights: [CGFloat] = [120, 110, 100, 460, 100, 242]
         let available = width - 2 * edge - CGFloat(bottom.count - 1) * gap
         var x = edge
-        let bottomY = 3 + CGFloat(symbols ? 3 : 4) * (keyHeight + verticalGap)
+        let bottomY = nextY
         for i in bottom.indices {
             let key = bottom[i], w = available * weights[i] / weights.reduce(0, +)
-            key.frame = CGRect(x: x, y: bottomY, width: w, height: keyHeight)
+            key.frame = CGRect(x: x, y: bottomY, width: w, height: bottomHeight)
+            fixShadow(key)
             if fontsChanged {
                 key.titleLabel?.font = .systemFont(ofSize: min(20, max(15, font * 0.82)))
                 key.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: font + 3, weight: .regular), forImageIn: .normal)
@@ -206,18 +255,26 @@ final class KeyboardCanvas: UIView {
 
     func updateShift(_ shifted: Bool, caps: Bool) {
         self.shifted = shifted
+        // 変わるキーだけを書き換える。setTitle はタイトルの再計測と再描画を
+        // 伴うため、数字行のように変わらないキーへ毎回呼ぶと切替全体が重くなる。
+        // タイトル表は configure 時に先行計算したキャッシュを使う。
+        let titles = (shifted && !symbols) ? shiftedTitles : normalTitles
         for (rowIndex, row) in characterRows.enumerated() {
             for (column, button) in row.enumerated() {
-                let value = values[rowIndex][column]
-                button.setTitle(shifted && !symbols ? value.uppercased() : value, for: .normal)
+                let title = titles[rowIndex][column]
+                if button.title(for: .normal) != title {
+                    button.setTitle(title, for: .normal)
+                }
             }
         }
         if symbols {
-            shiftButton?.setImage(nil, for: .normal)
-            shiftButton?.setTitle(symbolPage == 0 ? "#+=" : "123", for: .normal)
+            if shiftButton?.image(for: .normal) != nil { shiftButton?.setImage(nil, for: .normal) }
+            let title = symbolPage == 0 ? "#+=" : "123"
+            if shiftButton?.title(for: .normal) != title { shiftButton?.setTitle(title, for: .normal) }
         } else {
-            shiftButton?.setTitle("", for: .normal)
-            shiftButton?.setImage(UIImage(systemName: caps ? "capslock.fill" : shifted ? "shift.fill" : "shift"), for: .normal)
+            if shiftButton?.title(for: .normal) != "" { shiftButton?.setTitle("", for: .normal) }
+            let image = caps ? capsImage : shifted ? shiftFillImage : shiftImage
+            if shiftButton?.image(for: .normal) != image { shiftButton?.setImage(image, for: .normal) }
         }
     }
     func setJapaneseMode(_ japanese: Bool) {

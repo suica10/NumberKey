@@ -183,6 +183,10 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(expiredView)
         refreshPurchaseState()
         rebuildCanvas()
+        // 初期高さも実レイアウトと同じ計算式から決める (270 の決め打ちは廃止)。
+        // 以降は viewDidLayoutSubviews が候補バーの有無込みで更新し続ける。
+        let initialWidth = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
+        heightConstraint?.constant = canvas.preferredHeight(width: initialWidth) + (showsCandidateStrip ? 34 : 0)
     }
 
     /// 購入/トライアル状態を判定し直す。期限切れのときだけ案内ビューを出す。
