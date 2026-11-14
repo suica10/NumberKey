@@ -54,6 +54,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var stripContentWidth: CGFloat = 0
     /// パン開始時点のオフセット（ドラッグ量の基準）。
     private var stripPanBase: CGFloat = 0
+    /// 候補帯スクロールの慣性減速（build 59）。パン終了時点のオフセット
+    /// 方向速度（pt/s、正 = コンテンツが左へ進む方向）。0 なら減速なし。
+    private var stripDecelVelocity: CGFloat = 0
+    /// 慣性減速を駆動する DisplayLink（減速中のみ有効）。
+    private var stripDisplayLink: CADisplayLink?
+    /// 減速の前フレーム時刻（dt 算出用）。
+    private var stripLastFrameTime: CFTimeInterval = 0
     /// 高さ交渉のための Auto Layout 足場（不可視の sizer view）。
     /// build 53 で候補帯内に置いたが、ビルド56でルート直下へ移した。
     /// 足場は帯の外でルート階層の Auto Layout 参加だけを担い、帯の
@@ -1253,6 +1260,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let stripValues = isJapanese ? candidates : englishSuggestions
         if stripValues != lastStripValues {
             lastStripValues = stripValues
+            // リストが差し替わったら慣性減速も止める（build 59）。
+            stopStripDeceleration()
             if stripContentOffsetX != 0 {
                 stripContentOffsetX = 0
                 layoutCandidateKeys()
@@ -1310,12 +1319,64 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     @objc private func handleCandidatePan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
+            // 新しいタッチが来たら慣性減速は即座に止める（build 59）。
+            stopStripDeceleration()
             stripPanBase = stripContentOffsetX
         case .changed:
             setStripOffset(stripPanBase - gesture.translation(in: candidateStrip).x)
+        case .ended, .cancelled:
+            // 指を離した時点の横速度で慣性スクロールを始める（build 59）。
+            // オフセットは「指が左へ動くほど増える」向きなので、オフセット
+            // 方向の速度は velocity.x の符号反転になる。
+            startStripDeceleration(offsetVelocity: -gesture.velocity(in: candidateStrip).x)
         default:
             break
         }
+    }
+
+    /// 慣性減速の開始（build 59）。指に 1:1 追随するだけだと離した瞬間に
+    /// 止まって「固い」動きになるため、UIScrollView と同等の減衰
+    /// （1ms あたり ×0.998 の指数減衰）で滑らかに止める。コンテンツが
+    /// 帯に収まっている・速度が小さい場合は始めない。
+    private func startStripDeceleration(offsetVelocity: CGFloat) {
+        stopStripDeceleration()
+        guard abs(offsetVelocity) > 30,
+              max(0, stripContentWidth - candidateStrip.bounds.width) > 0 else { return }
+        stripDecelVelocity = offsetVelocity
+        stripLastFrameTime = 0
+        let link = CADisplayLink(target: self, selector: #selector(stepStripDeceleration(_:)))
+        link.add(to: .main, forMode: .common)
+        stripDisplayLink = link
+    }
+
+    /// 慣性減速の停止（新しいタッチ・候補リスト更新でのオフセット
+    /// リセット時に即座に呼ぶ）。
+    private func stopStripDeceleration() {
+        stripDisplayLink?.invalidate()
+        stripDisplayLink = nil
+        stripDecelVelocity = 0
+    }
+
+    /// 減速の1フレーム分：オフセットを速度ぶん進め、速度を指数減衰させる。
+    /// 端 [0, 総幅 − 帯幅] に達したらそこで停止する（ラバーバンドなし）。
+    @objc private func stepStripDeceleration(_ link: CADisplayLink) {
+        let dt: CFTimeInterval
+        if stripLastFrameTime > 0 {
+            dt = min(link.timestamp - stripLastFrameTime, 0.05)
+        } else {
+            dt = link.duration
+        }
+        stripLastFrameTime = link.timestamp
+        guard dt > 0 else { return }
+        let next = stripContentOffsetX + stripDecelVelocity * CGFloat(dt)
+        let clamped = clampedStripOffset(next)
+        setStripOffset(next)
+        // 端に当たった、または速度が十分小さくなったら終了。
+        if clamped != next || abs(stripDecelVelocity) < 5 {
+            stopStripDeceleration()
+            return
+        }
+        stripDecelVelocity *= CGFloat(pow(0.998, dt * 1000))
     }
 
     /// 候補帯のパンは横方向のドラッグだけ開始する（旧 UIScrollView の
