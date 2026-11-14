@@ -33,6 +33,13 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
+    /// 候補バーの高さ（表示時）。帯の高さはこの定数を唯一の情報源とし、
+    /// 高さ制約・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
+    /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
+    /// 下にずれて最下段が切れる不具合の修正）。
+    private let candidateStripHeight: CGFloat = 34
+    /// 現在の状態で帯が占める高さ（非表示なら 0）。
+    private var currentCandidateHeight: CGFloat { showsCandidateStrip ? candidateStripHeight : 0 }
     // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
     // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
     private var candidateKeys: [CandidateKey] = []
@@ -180,10 +187,11 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(expiredView)
         refreshPurchaseState()
         rebuildCanvas()
-        // 初期高さも実レイアウトと同じ計算式から決める (270 の決め打ちは廃止)。
-        // 以降は viewDidLayoutSubviews が候補バーの有無込みで更新し続ける。
+        // 初期高さも実レイアウトと同じ計算式 (layoutMetrics) から決める
+        // (270 の決め打ちは廃止)。以降は viewDidLayoutSubviews が候補バーの
+        // 有無込みで更新し続ける。
         let initialWidth = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
-        heightConstraint?.constant = canvas.preferredHeight(width: initialWidth) + (showsCandidateStrip ? 34 : 0)
+        heightConstraint?.constant = layoutMetrics(width: initialWidth).totalHeight
     }
 
     /// 購入/トライアル状態を判定し直す。期限切れのときだけ案内ビューを出す。
@@ -362,6 +370,9 @@ final class KeyboardViewController: UIInputViewController {
             lastAppearanceStyle = style
             rebuildCanvas()
         }
+        // 設定（キー高さ・記号モード等）で合計高さが変わりうるので、表示前に
+        // 現在の状態の高さを制約へ反映しておく（build 50）。
+        updateHeightConstraint()
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -371,19 +382,89 @@ final class KeyboardViewController: UIInputViewController {
         editor.finish()
         resetComposition()
     }
+    /// レイアウト寸法の一括計算結果。高さ制約・候補バーのフレーム・
+    /// キャンバスの原点はすべてこの1回の計算から決める。
+    private struct LayoutMetrics {
+        var capturePanelHeight: CGFloat
+        var phrasePanelHeight: CGFloat
+        var clipboardPanelHeight: CGFloat
+        var emojiPanelHeight: CGFloat
+        var topHeight: CGFloat
+        var perfHeight: CGFloat
+        var candidateHeight: CGFloat
+        var keysHeight: CGFloat
+        var totalHeight: CGFloat
+    }
+
+    /// 現在の状態に対するレイアウト寸法を計算する（build 50）。
+    /// 合計高さは「実際に配置するフレームの合計」そのものとし、状態の
+    /// 純粋な関数にする。以前は合計に view.safeAreaInsets.bottom を加えて
+    /// いたが、初期高さ（viewDidLoad）の式には含まれておらず、提示の
+    /// タイミングで変わりうる値を制約に混ぜると、配置済みフレームの合計と
+    /// 要求高さが食い違って実フレーム高さと制約が乖離する一因になる。
+    /// パネル高さの予算計算からも同様に外した（帯・キー列との合算で
+    /// 画面の約6割に収まる性質は変わらない）。
+    private func layoutMetrics(width: CGFloat) -> LayoutMetrics {
+        let keysHeight = canvas.preferredHeight(width: width)
+        let candidateHeight = currentCandidateHeight
+        var capturePanelHeight: CGFloat = 0
+        if isCapturing {
+            let budget = UIScreen.main.bounds.height * 0.62
+            capturePanelHeight = max(150, budget - candidateHeight - keysHeight)
+        }
+        var phrasePanelHeight: CGFloat = 0
+        if isPicking && !isCapturing {
+            let budget = UIScreen.main.bounds.height * 0.62
+            phrasePanelHeight = max(200, budget - candidateHeight - keysHeight)
+        }
+        var clipboardPanelHeight: CGFloat = 0
+        if isClipboardPicking && !isCapturing && !isPicking {
+            let budget = UIScreen.main.bounds.height * 0.62
+            clipboardPanelHeight = max(200, budget - candidateHeight - keysHeight)
+        }
+        var emojiPanelHeight: CGFloat = 0
+        if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
+            let budget = UIScreen.main.bounds.height * 0.62
+            emojiPanelHeight = max(200, budget - candidateHeight - keysHeight)
+        }
+        let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight + emojiPanelHeight
+        let perfHeight: CGFloat = (PerfProbe.enabled && topHeight == 0) ? 16 : 0
+        let totalHeight = topHeight + perfHeight + candidateHeight + keysHeight
+        return LayoutMetrics(capturePanelHeight: capturePanelHeight,
+                             phrasePanelHeight: phrasePanelHeight,
+                             clipboardPanelHeight: clipboardPanelHeight,
+                             emojiPanelHeight: emojiPanelHeight,
+                             topHeight: topHeight, perfHeight: perfHeight,
+                             candidateHeight: candidateHeight, keysHeight: keysHeight,
+                             totalHeight: totalHeight)
+    }
+
+    /// 高さ制約を現在の状態の値に合わせる。帯の表示/非表示が切り替わった
+    /// その場（renderState）からも呼ぶことで、高さの変更要求がレイアウト
+    /// パスの完了を待たず、状態変化と同じターンでホストへ伝わる。
+    private func updateHeightConstraint() {
+        guard let heightConstraint, view.bounds.width > 0 else { return }
+        let total = layoutMetrics(width: view.bounds.width).totalHeight
+        if abs(heightConstraint.constant - total) > 0.5 { heightConstraint.constant = total }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
         guard width > 0 else { return }
-        let keysHeight = canvas.preferredHeight(width: width)
-        let candidateHeight: CGFloat = showsCandidateStrip ? 34 : 0
+        // 寸法は1回だけ計算し、高さ制約はフレーム配置より先に同じ値で
+        // 更新する（build 50: 以前は制約の更新がレイアウト末尾で、配置済み
+        // フレームと要求高さが別々に決まっていた）。
+        let metrics = layoutMetrics(width: width)
+        let keysHeight = metrics.keysHeight
+        let candidateHeight = metrics.candidateHeight
+        if abs((heightConstraint?.constant ?? 0) - metrics.totalHeight) > 0.5 {
+            heightConstraint?.constant = metrics.totalHeight
+        }
         // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
-        var capturePanelHeight: CGFloat = 0
-        if isCapturing {
-            let budget = UIScreen.main.bounds.height * 0.62
-            capturePanelHeight = max(150, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
-        }
+        // パネル高さは layoutMetrics で計算済み（ここでは配置だけを行う）。
+        let capturePanelHeight = metrics.capturePanelHeight
         capturePanel.isHidden = !isCapturing
         if isCapturing {
             let isLight = traitCollection.userInterfaceStyle == .light
@@ -396,11 +477,7 @@ final class KeyboardViewController: UIInputViewController {
             captureButtonRow.frame = CGRect(x: 12, y: max(30, panelHeight - 50), width: max(0, panelWidth - 24), height: 42)
             captureDisplay.frame = CGRect(x: 12, y: 30, width: max(0, panelWidth - 24), height: max(0, panelHeight - 30 - 56))
         }
-        var phrasePanelHeight: CGFloat = 0
-        if isPicking && !isCapturing {
-            let budget = UIScreen.main.bounds.height * 0.62
-            phrasePanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
-        }
+        let phrasePanelHeight = metrics.phrasePanelHeight
         phrasePanel.isHidden = !isPicking
         if isPicking && !isCapturing {
             let isLight = traitCollection.userInterfaceStyle == .light
@@ -415,11 +492,7 @@ final class KeyboardViewController: UIInputViewController {
             phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
             phraseReorderToggle.frame = CGRect(x: max(0, panelWidth - 142), y: max(0, panelHeight - 46), width: 130, height: 38)
         }
-        var clipboardPanelHeight: CGFloat = 0
-        if isClipboardPicking && !isCapturing && !isPicking {
-            let budget = UIScreen.main.bounds.height * 0.62
-            clipboardPanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
-        }
+        let clipboardPanelHeight = metrics.clipboardPanelHeight
         clipboardPanel.isHidden = !isClipboardPicking
         if isClipboardPicking && !isCapturing && !isPicking {
             let isLight = traitCollection.userInterfaceStyle == .light
@@ -433,11 +506,7 @@ final class KeyboardViewController: UIInputViewController {
             clipboardScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             clipboardClearButton.frame = CGRect(x: max(0, panelWidth - 112), y: max(0, panelHeight - 46), width: 100, height: 38)
         }
-        var emojiPanelHeight: CGFloat = 0
-        if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
-            let budget = UIScreen.main.bounds.height * 0.62
-            emojiPanelHeight = max(200, budget - candidateHeight - keysHeight - view.safeAreaInsets.bottom)
-        }
+        let emojiPanelHeight = metrics.emojiPanelHeight
         emojiPanel.isHidden = !isEmojiPicking
         if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
             let isLight = traitCollection.userInterfaceStyle == .light
@@ -451,11 +520,11 @@ final class KeyboardViewController: UIInputViewController {
             emojiCategoryScroll.frame = CGRect(x: 8, y: 44, width: max(0, panelWidth - 16), height: 36)
             emojiScroll.frame = CGRect(x: 8, y: 86, width: max(0, panelWidth - 16), height: max(0, panelHeight - 86 - 8))
         }
-        let topHeight = capturePanelHeight + phrasePanelHeight + clipboardPanelHeight + emojiPanelHeight
+        let topHeight = metrics.topHeight
         // PerfProbe の帯は候補欄の上に専用スペースを確保する。重ね表示だと
         // 候補のボタンやホスト側の角丸に隠れて見えないことがあったため。
         // パネル表示中は帯ごと隠す。
-        let perfHeight: CGFloat = (PerfProbe.enabled && topHeight == 0) ? 16 : 0
+        let perfHeight = metrics.perfHeight
         if PerfProbe.enabled {
             perfLabel.isHidden = perfHeight == 0
             if perfHeight > 0 { perfLabel.frame = CGRect(x: 0, y: topHeight, width: width, height: perfHeight) }
@@ -476,8 +545,8 @@ final class KeyboardViewController: UIInputViewController {
             expiredOpenButton.frame = CGRect(x: 24, y: midY + 22, width: max(0, width - 48), height: 44)
             view.bringSubviewToFront(expiredView)
         }
-        let height = topHeight + perfHeight + candidateHeight + keysHeight + view.safeAreaInsets.bottom
-        if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
+        // 高さ制約は関数の先頭で metrics.totalHeight に更新済み。
+        // 配置したフレームの合計と常に一致する（build 50）。
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -1021,7 +1090,14 @@ final class KeyboardViewController: UIInputViewController {
         }
         canvas.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !showsCandidateStrip
-        if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
+        if candidateScroll.isHidden != shouldHideCandidates {
+            view.setNeedsLayout()
+            // build 50: 高さ制約はレイアウトパスの完了を待たず、帯の
+            // 表示/非表示が切り替わったこの場で新しい合計高さに更新する。
+            // 帯が消えたのに要求高さだけが前の値に残ると、実フレームが
+            // 帯の分だけずれて最下段が画面下に切れる。
+            updateHeightConstraint()
+        }
         let stripStamp = PerfProbe.stamp()
         let stripCount = isJapanese ? candidates.count : englishSuggestions.count
         while candidateKeys.count > stripCount {
@@ -1101,7 +1177,7 @@ final class KeyboardViewController: UIInputViewController {
         // 配置計算自体は build 46 (コンテナ内配置) から無変更。
         do {
             var x: CGFloat = 6
-            let stripHeight: CGFloat = 34
+            let stripHeight = candidateStripHeight
             for key in candidateKeys {
                 var w = key.intrinsicContentSize.width
                 if w <= 0 {
