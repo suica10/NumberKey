@@ -123,6 +123,32 @@ actor ConversionService {
         return order.prefix(12).map { pool[$0] }
     }
 
+    /// 実機診断用 (DiagProbe から呼ばれる)。本番の世代管理には触れず、
+    /// 「にほんご」の生の変換結果と fullInputCandidates の通過数を返す。
+    /// rawCount が 0 なら変換器/辞書側、raw はあるのに filtered が 0 なら
+    /// こちらのフィルタ側の問題と切り分けられる。
+    func probeConversion() -> (rawCount: Int, rawFirst: [String], filtered: [String]) {
+        warmUp()
+        guard let converter else { return (-1, [], []) }
+        var comp = ComposingText()
+        comp.insertAtCursorPosition("nihongo", inputStyle: .roman2kana)
+        let results = converter.requestCandidates(comp, options: .init(
+            N_best: 4,
+            requireJapanesePrediction: .disabled,
+            requireEnglishPrediction: .disabled,
+            keyboardLanguage: .ja_JP,
+            englishCandidateInRoman2KanaInput: false,
+            learningType: .inputAndOutput,
+            memoryDirectoryURL: memoryDirectoryURL,
+            sharedContainerURL: memoryDirectoryURL,
+            textReplacer: .empty,
+            specialCandidateProviders: [],
+            metadata: .init(versionString: "NumberKey probe")
+        ))
+        let filtered = fullInputCandidates(for: comp, converter: converter)
+        return (results.mainResults.count, results.mainResults.prefix(3).map { $0.text }, filtered)
+    }
+
     func learn(_ text: String) {
         guard let converter, let candidate = learningCandidates[text], candidate.isLearningTarget else { return }
         converter.updateLearningData(candidate)

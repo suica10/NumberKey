@@ -163,6 +163,7 @@ final class KeyboardViewController: UIInputViewController {
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
+        DiagProbe.runOnce(service: service)
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
         // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
