@@ -30,11 +30,13 @@ final class KeyboardViewController: UIInputViewController {
     private var waitingSpaceCount = 0
     private var conversionTask: Task<Void, Never>?
     private var deleteTimer: Timer?
-    private var heightConstraint: NSLayoutConstraint?
+    /// build 52: ルートビュー（loadView で差し替える KeyboardInputView）。
+    /// 要求高さはこのビューの requestedHeight 経由でだけ公開する。
+    private var keyboardInputView: KeyboardInputView?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
     /// 候補バーの高さ（表示時）。帯の高さはこの定数を唯一の情報源とし、
-    /// 高さ制約・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
+    /// 要求高さ・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
     /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
     /// 下にずれて最下段が切れる不具合の修正）。
     private let candidateStripHeight: CGFloat = 34
@@ -108,14 +110,21 @@ final class KeyboardViewController: UIInputViewController {
     private weak var openClipboardRow: PhraseRowView?
     private var isJapanese: Bool { settings.japanese }
 
+    /// build 52: ルートビューを KeyboardInputView に差し替え、inputView
+    /// としても同じインスタンスをインストールする（viewDidLoad で
+    /// サブビューが載る前に行う）。高さの公開はこのビューの
+    /// requestedHeight に一本化し、旧来の heightAnchor 制約（優先度999）
+    /// は廃止した——実機トレースで制約がホスト既定高さ（226/216）に
+    /// 一度も勝てないことが確定したため（KeyboardInputView.swift 参照）。
+    override func loadView() {
+        let input = KeyboardInputView(frame: .zero, inputViewStyle: .default)
+        keyboardInputView = input
+        view = input
+        inputView = input
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        // build 51: UIInputView が自律的にサイズを決められるようにする。
-        // これが無いと、ホスト側がこちらの高さ制約 (999) を採用せず、
-        // システム既定の高さ (実機では 226) に固定してしまう場面がある
-        // (ビルド47の診断CSVで実フレーム 226 vs 制約 261/295 を確認)。
-        // 高さ制約の作成より前に設定すること。
-        (view as? UIInputView)?.allowsSelfSizing = true
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
         ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
@@ -175,8 +184,6 @@ final class KeyboardViewController: UIInputViewController {
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
-        let height = view.heightAnchor.constraint(equalToConstant: 270)
-        height.priority = .init(999); height.isActive = true; heightConstraint = height
         // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
         // アプリを開くボタンは試みとして置き、効かなくても文言で案内できる形にする。
         expiredView.isHidden = true
@@ -195,11 +202,10 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(expiredView)
         refreshPurchaseState()
         rebuildCanvas()
-        // 初期高さも実レイアウトと同じ計算式 (layoutMetrics) から決める
-        // (270 の決め打ちは廃止)。以降は viewDidLayoutSubviews が候補バーの
-        // 有無込みで更新し続ける。
-        let initialWidth = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
-        heightConstraint?.constant = layoutMetrics(width: initialWidth).totalHeight
+        // 初期の要求高さも実レイアウトと同じ計算式 (layoutMetrics) から
+        // 決める。以降は状態が変わるたびに updateRequestedHeight() が
+        // 候補バーの有無込みで公開し続ける。
+        updateRequestedHeight()
     }
 
     /// 購入/トライアル状態を判定し直す。期限切れのときだけ案内ビューを出す。
@@ -379,8 +385,10 @@ final class KeyboardViewController: UIInputViewController {
             rebuildCanvas()
         }
         // 設定（キー高さ・記号モード等）で合計高さが変わりうるので、表示前に
-        // 現在の状態の高さを制約へ反映しておく（build 50）。
-        updateHeightConstraint()
+        // 現在の状態の要求高さを公開しておく（build 50）。出現時は値が
+        // 同じでも再アサート（invalidate）して、ホスト側に再測定させる
+        // （build 52）。
+        updateRequestedHeight(force: true)
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -390,7 +398,7 @@ final class KeyboardViewController: UIInputViewController {
         editor.finish()
         resetComposition()
     }
-    /// レイアウト寸法の一括計算結果。高さ制約・候補バーのフレーム・
+    /// レイアウト寸法の一括計算結果。要求高さ・候補バーのフレーム・
     /// キャンバスの原点はすべてこの1回の計算から決める。
     private struct LayoutMetrics {
         var capturePanelHeight: CGFloat
@@ -408,8 +416,8 @@ final class KeyboardViewController: UIInputViewController {
     /// 合計高さは「実際に配置するフレームの合計」そのものとし、状態の
     /// 純粋な関数にする。以前は合計に view.safeAreaInsets.bottom を加えて
     /// いたが、初期高さ（viewDidLoad）の式には含まれておらず、提示の
-    /// タイミングで変わりうる値を制約に混ぜると、配置済みフレームの合計と
-    /// 要求高さが食い違って実フレーム高さと制約が乖離する一因になる。
+    /// タイミングで変わりうる値を要求高さに混ぜると、配置済みフレームの
+    /// 合計と要求高さが食い違って実フレーム高さと要求高さが乖離する一因になる。
     /// パネル高さの予算計算からも同様に外した（帯・キー列との合算で
     /// 画面の約6割に収まる性質は変わらない）。
     private func layoutMetrics(width: CGFloat) -> LayoutMetrics {
@@ -447,28 +455,35 @@ final class KeyboardViewController: UIInputViewController {
                              totalHeight: totalHeight)
     }
 
-    /// 高さ制約を現在の状態の値に合わせる。帯の表示/非表示が切り替わった
-    /// その場（renderState）からも呼ぶことで、高さの変更要求がレイアウト
-    /// パスの完了を待たず、状態変化と同じターンでホストへ伝わる。
-    private func updateHeightConstraint() {
-        guard let heightConstraint, view.bounds.width > 0 else { return }
-        let total = layoutMetrics(width: view.bounds.width).totalHeight
-        if abs(heightConstraint.constant - total) > 0.5 { heightConstraint.constant = total }
+    /// 要求高さを現在の状態の値に合わせてルートビューへ公開する
+    /// （build 52 で高さ制約から移行。高さの公開はここが唯一の入口）。
+    /// 帯の表示/非表示が切り替わったその場（renderState）からも呼ぶことで、
+    /// 高さの変更要求がレイアウトパスの完了を待たず、状態変化と同じ
+    /// ターンでホストへ伝わる。force のときは値が同じでも
+    /// invalidateIntrinsicContentSize() を呼んで再アサートする。
+    private func updateRequestedHeight(force: Bool = false) {
+        guard let input = keyboardInputView else { return }
+        let width = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
+        let total = layoutMetrics(width: width).totalHeight
+        if force || abs(input.requestedHeight - total) > 0.5 {
+            input.requestedHeight = total
+            input.invalidateIntrinsicContentSize()
+            input.setNeedsLayout()
+            view.setNeedsLayout()
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
         guard width > 0 else { return }
-        // 寸法は1回だけ計算し、高さ制約はフレーム配置より先に同じ値で
-        // 更新する（build 50: 以前は制約の更新がレイアウト末尾で、配置済み
+        // 寸法は1回だけ計算し、要求高さはフレーム配置より先に同じ値で
+        // 公開する（build 50: 以前は高さの更新がレイアウト末尾で、配置済み
         // フレームと要求高さが別々に決まっていた）。
         let metrics = layoutMetrics(width: width)
         let keysHeight = metrics.keysHeight
         let candidateHeight = metrics.candidateHeight
-        if abs((heightConstraint?.constant ?? 0) - metrics.totalHeight) > 0.5 {
-            heightConstraint?.constant = metrics.totalHeight
-        }
+        updateRequestedHeight()
         // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
         // パネル高さは layoutMetrics で計算済み（ここでは配置だけを行う）。
@@ -553,17 +568,17 @@ final class KeyboardViewController: UIInputViewController {
             expiredOpenButton.frame = CGRect(x: 24, y: midY + 22, width: max(0, width - 48), height: 44)
             view.bringSubviewToFront(expiredView)
         }
-        // 高さ制約は関数の先頭で metrics.totalHeight に更新済み。
+        // 要求高さは関数の先頭で metrics.totalHeight に公開済み。
         // 配置したフレームの合計と常に一致する（build 50）。
         traceHeightIfChanged()
     }
 
-    /// 高さ関係の値（制約定数 c・実フレーム高さ b・キャンバス下端 cb・
+    /// 高さ関係の値（要求高さ c・実フレーム高さ b・キャンバス下端 cb・
     /// 帯の有無 strip）を、署名が変わったときだけ DiagTrace に記録する
     /// （build 51 の検証用一時コード。次ビルドで DiagTrace ごと削除する）。
     private func traceHeightIfChanged() {
         let signature = String(format: "c=%.0f b=%.0f cb=%.0f strip=%d",
-                               heightConstraint?.constant ?? -1,
+                               keyboardInputView?.requestedHeight ?? -1,
                                view.bounds.height,
                                canvas.frame.maxY,
                                showsCandidateStrip ? 1 : 0)
@@ -1116,11 +1131,11 @@ final class KeyboardViewController: UIInputViewController {
         let shouldHideCandidates = !showsCandidateStrip
         if candidateScroll.isHidden != shouldHideCandidates {
             view.setNeedsLayout()
-            // build 50: 高さ制約はレイアウトパスの完了を待たず、帯の
+            // build 50: 要求高さはレイアウトパスの完了を待たず、帯の
             // 表示/非表示が切り替わったこの場で新しい合計高さに更新する。
             // 帯が消えたのに要求高さだけが前の値に残ると、実フレームが
             // 帯の分だけずれて最下段が画面下に切れる。
-            updateHeightConstraint()
+            updateRequestedHeight()
         }
         let stripStamp = PerfProbe.stamp()
         let stripCount = isJapanese ? candidates.count : englishSuggestions.count
