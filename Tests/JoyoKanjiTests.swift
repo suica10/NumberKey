@@ -1,11 +1,14 @@
 import XCTest
 @testable import KeyboardConversion
 
-/// 常用漢字ボーナス (ビルド60) のゲート:
+/// 常用漢字ボーナス (ビルド60、61 で強化) のゲート:
 /// 1. 字種リストの健全性 (常用 2,136 / 人名用 863、出典 KANJIDIC2)
-/// 2. 既存104件フィクスチャで top-1 が現行 0.865 (=90/104) を下回らない
+/// 2. 既存104件フィクスチャで top-1 が現行 0.865 (=90/104)、top-3 が
+///    1.000 (=104/104) を下回らない
 /// 3. 常用ケース (joyo_fixture.json): 常用外の漢字が沈み、正解が常用外を
-///    含むケースでも致命的に沈まない
+///    含むケースでも致命的に沈まない。「くるま → 車 1位」(ビルド61) を含む
+/// 4. JoyoKanji.shared が埋め込みフォールバックで必ず読み込めること
+///    (ビルド60 実機で調整が無効化された事象の回帰防止)
 final class JoyoKanjiTests: XCTestCase {
     private struct FixtureItem: Decodable {
         let candidates: [String]
@@ -55,12 +58,30 @@ final class JoyoKanjiTests: XCTestCase {
         let fixture = try JSONDecoder().decode([FixtureItem].self, from: fixtureData)
         XCTAssertEqual(fixture.count, 104)
         var hits = 0
+        var top3 = 0
         for item in fixture {
             let scores = item.lm_sum.map { Float($0) }
             let order = joyoAdjustedOrder(candidates: item.candidates, scores: scores, joyo: joyo, penaltyExempt: [])
-            if item.candidates[order[0]] == item.expected { hits += 1 }
+            let rank = order.firstIndex { item.candidates[$0] == item.expected }.map { $0 + 1 }
+            if rank == 1 { hits += 1 }
+            if let rank, rank <= 3 { top3 += 1 }
         }
         XCTAssertGreaterThanOrEqual(hits, 90, "top-1 は現行 0.865 (90/104) を下回らないこと: \(hits)/104")
+        XCTAssertEqual(top3, 104, "top-3 は現行 1.000 (104/104) を下回らないこと: \(top3)/104")
+    }
+
+    /// ビルド60 の実機では JoyoKanji.shared の読み込み失敗で調整が丸ごと
+    /// 無効化された (候補順が無調整の LM 順と一致)。shared は埋め込み
+    /// リストを最終フォールバックに持つため、どの環境でも必ず使えること。
+    func testSharedFallsBackToEmbeddedList() {
+        let shared = JoyoKanji.shared
+        XCTAssertNotNil(shared)
+        XCTAssertEqual(shared?.allowed.count, 2136 + 863)
+        let embedded = JoyoKanji(text: JoyoKanji.embeddedList)
+        XCTAssertEqual(embedded.allowed.count, 2136 + 863)
+        XCTAssertEqual(embedded.adjustment(for: "車"), JoyoKanji.bonus)
+        XCTAssertEqual(embedded.adjustment(for: "俥"), -JoyoKanji.penaltyPerKanji)
+        XCTAssertEqual(embedded.adjustment(for: "輅"), -JoyoKanji.penaltyPerKanji)
     }
 
     func testJoyoCases() throws {
