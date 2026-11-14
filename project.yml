@@ -28,6 +28,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.onejpkey.NumberKey
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PROVISIONING_PROFILE_SPECIFIER: One Keyboard App Store
         CODE_SIGN_ENTITLEMENTS: App/NumberKey.entitlements
         GENERATE_INFOPLIST_FILE: NO
     info:
@@ -36,6 +37,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: One Keyboard
+        ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: jp.onejpkey.NumberKey
             CFBundleURLSchemes:
@@ -56,6 +58,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.onejpkey.NumberKey.Keyboard
+        PROVISIONING_PROFILE_SPECIFIER: One Keyboard Keyboard App Store
         CODE_SIGN_ENTITLEMENTS: Keyboard/NumberKeyKeyboard.entitlements
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES
