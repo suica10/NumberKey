@@ -37,12 +37,16 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
-    /// build 53: 候補帯内の Auto Layout 足場（不可視の sizer view）。
-    /// 候補キーの配置はビルド48の「scroll 直下・手動フレーム」のまま崩さず、
-    /// この sizer は candidateScroll の contentSize を制約経由で決める
-    /// ためだけに置く。幅制約は renderState が候補コンテンツ総幅に合わせる。
+    /// 高さ交渉のための Auto Layout 足場（不可視の sizer view）。
+    /// build 53 で候補帯内（candidateScroll の中）に置いたが、ビルド56で
+    /// ルート直下へ移した。帯の中に Auto Layout を持ち込むと、この
+    /// ホストのリモート描画では (1) contentSize が制約経由の解決結果に
+    /// 引っ張られて横スクロール範囲が壊れ、(2) スクロール中のコンテンツ
+    /// レイアウトパスを契機に候補キーの描画だけが落ちる（キーの実在・
+    /// ヒットテスト・確定動作は正常なまま）症状が出たため。帯の中は
+    /// ビルド48の「scroll 直下・手動フレーム + 手動 contentSize」に戻し、
+    /// 足場は帯の外でルート階層の Auto Layout 参加だけを担う。
     private let candidateSizer = UIView()
-    private var candidateSizerWidthConstraint: NSLayoutConstraint?
     /// 候補バーの高さ（表示時）。帯の高さはこの定数を唯一の情報源とし、
     /// 要求高さ・帯のフレーム・キャンバスの原点はすべて layoutMetrics の
     /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
@@ -123,8 +127,9 @@ final class KeyboardViewController: UIInputViewController {
     // systemLayoutSizeFitting / intrinsicContentSize 上書き）は、実機で
     // 「セッション中の高さ増加（261→295）が反映されない」症状が出た
     // ため廃止した（ビルド53のCSV: 帯なし c=261→b=261 は一致するが、
-    // 帯あり c=295 でも b=261 のまま）。帯内の Auto Layout 足場
-    // （candidateSizer）はビルド53で復活させたものを維持する。
+    // 帯あり c=295 でも b=261 のまま）。Auto Layout 足場（candidateSizer）
+    // はビルド56で帯の中からルート直下へ移設した（理由は candidateSizer
+    // のコメント参照）。
     override func viewDidLoad() {
         super.viewDidLoad()
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
@@ -150,25 +155,33 @@ final class KeyboardViewController: UIInputViewController {
         }
         view.addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
-        // build 53: 候補帯内に Auto Layout の足場を復活させる（不可視の
-        // sizer）。ピン留めはビルド45以前の candidateStack と同じ:
-        // leading/trailing/top/bottom を contentLayoutGuide に、height を
-        // frameLayoutGuide の height と等しくする。候補キーはこの上に
-        // 重なる形で従来どおり scroll 直下・手動フレームで配置される
-        // （sizer は操作を受けず、背景も透明）。
+        // build 56: スクロールの挙動を候補帯用に固定する。
+        // - contentInsetAdjustmentBehavior = .never: 既定の .automatic では
+        //   キーボードのセーフエリア（ホームインジケータ側）分のインセットが
+        //   adjustedContentInset に乗り、帯の高さ34ptに対して縦方向の
+        //   スクロール余地が生まれうる。帯は横専用なので余地を断つ。
+        // - isDirectionalLockEnabled: 斜めドラッグを横方向に固定する。
+        // - delaysContentTouches / cancelsTouchesInView は UIKit 既定値
+        //   (true/true) だが、候補選択が「ドラッグでは発火せず、離した
+        //   タップ（touchUpInside）でのみ発火する」前提を明示する。
+        candidateScroll.contentInsetAdjustmentBehavior = .never
+        candidateScroll.isDirectionalLockEnabled = true
+        candidateScroll.delaysContentTouches = true
+        candidateScroll.cancelsTouchesInView = true
+        // build 56: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
+        // 候補帯の中ではなくルート直下に置く（candidateSizer のコメント
+        // 参照）。帯の高さに連動させるため height は candidateScroll の
+        // height と等しくする。sizer は操作を受けず、背景も透明で、
+        // レイアウトには一切影響しない（幅0・左上固定）。
         candidateSizer.backgroundColor = .clear
         candidateSizer.isUserInteractionEnabled = false
         candidateSizer.translatesAutoresizingMaskIntoConstraints = false
-        candidateScroll.addSubview(candidateSizer)
-        let sizerWidth = candidateSizer.widthAnchor.constraint(equalToConstant: 0)
-        candidateSizerWidthConstraint = sizerWidth
+        view.addSubview(candidateSizer)
         NSLayoutConstraint.activate([
-            candidateSizer.leadingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.leadingAnchor, constant: 6),
-            candidateSizer.trailingAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.trailingAnchor, constant: -6),
-            candidateSizer.topAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.topAnchor),
-            candidateSizer.bottomAnchor.constraint(equalTo: candidateScroll.contentLayoutGuide.bottomAnchor),
-            candidateSizer.heightAnchor.constraint(equalTo: candidateScroll.frameLayoutGuide.heightAnchor),
-            sizerWidth,
+            candidateSizer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            candidateSizer.topAnchor.constraint(equalTo: view.topAnchor),
+            candidateSizer.widthAnchor.constraint(equalToConstant: 0),
+            candidateSizer.heightAnchor.constraint(equalTo: candidateScroll.heightAnchor),
         ])
         // build 48: build 47 の実機診断で、scroll 直下のマーカー B とルート直下の
         // マーカー A は表示されるのに、コンテナ candidateStack の子 (マーカー C と
@@ -1220,10 +1233,10 @@ final class KeyboardViewController: UIInputViewController {
         // frame は scroll のコンテンツ座標そのもの。左端 6pt から 8pt 間隔で
         // 並べる (右端にも 6pt の余白を残す)。
         // 配置計算自体は build 46 (コンテナ内配置) から無変更。
-        // build 53: contentSize の手動設定は廃止し、candidateSizer の幅制約
-        // 経由で決まるようにした。sizer は左右 6pt のインセットで
-        // contentLayoutGuide にピン留めされているため、幅の定数は
-        // コンテンツ総幅から 12 を引いた値になる。
+        // build 56: contentSize はコードで明示的に設定する（ビルド48方式）。
+        // ビルド53〜55では帯内 sizer の制約経由で決めていたが、解決結果が
+        // 実コンテンツ幅と一致せず横スクロールできなかった。sizer は
+        // ビルド56で帯の外（ルート直下）へ移設済みで、帯の中は手動のみ。
         do {
             var x: CGFloat = 6
             let stripHeight = candidateStripHeight
@@ -1236,7 +1249,7 @@ final class KeyboardViewController: UIInputViewController {
                 x += w + 8
             }
             let contentWidth = candidateKeys.isEmpty ? 0 : x - 8 + 6
-            candidateSizerWidthConstraint?.constant = max(0, contentWidth - 12)
+            candidateScroll.contentSize = CGSize(width: contentWidth, height: stripHeight)
         }
         PerfProbe.shared.record("strip", since: stripStamp)
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
