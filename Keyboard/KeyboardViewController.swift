@@ -36,8 +36,13 @@ final class KeyboardViewController: UIInputViewController {
     // build 46: 候補欄の内部配置は Auto Layout を廃止し手動フレームにしたため、
     // candidateStack は UIStackView ではなく素の UIView (名前は差分最小化のため維持)。
     private let candidateStack = UIView()
-    // 実機診断 (build 44): bar.geometry の値が変わったときだけ記録するための署名。
+    // Layout snapshots are deduplicated; build 47's paired render samples are not.
     private var lastBarGeometrySignature: String?
+    // Build 47: non-interactive overlays; never change the candidate layout.
+    private let barMarkerRoot = KeyboardViewController.makeBarMarker("A")
+    private let barMarkerScroll = KeyboardViewController.makeBarMarker("B")
+    private let barMarkerContent = KeyboardViewController.makeBarMarker("C")
+    private var barDiagnosticSample = 0
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
     private let perfLabel = UILabel()
@@ -184,6 +189,10 @@ final class KeyboardViewController: UIInputViewController {
         }, for: .touchUpInside)
         expiredView.addSubview(expiredOpenButton)
         view.addSubview(expiredView)
+        view.addSubview(barMarkerRoot)
+        candidateScroll.addSubview(barMarkerScroll)
+        candidateStack.addSubview(barMarkerContent)
+        layoutBarMarkers()
         refreshPurchaseState()
         rebuildCanvas()
         // 初期高さも実レイアウトと同じ計算式から決める (270 の決め打ちは廃止)。
@@ -470,6 +479,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         candidateScroll.isHidden = candidateHeight == 0
         candidateScroll.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
+        layoutBarMarkers()
         canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
         expiredView.isHidden = !purchaseExpired
@@ -1137,25 +1147,83 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
         DiagTrace.shared.record(event: "bar.render", detail: "items=\(candidateKeys.count) stripCount=\(stripCount) showsStrip=\(showsCandidateStrip) composing=\(!composition.isEmpty) ja=\(isJapanese) rev=\(revision)")
-        traceBarGeometry(source: "render")
+        // Only order our diagnostic overlays above content; do not reorder product views.
+        candidateScroll.bringSubviewToFront(barMarkerScroll)
+        candidateStack.bringSubviewToFront(barMarkerContent)
+        barDiagnosticSample += 1
+        let sample = barDiagnosticSample
+        let requestedRevision = revision
+        let sampledAt = ProcessInfo.processInfo.systemUptime
+        traceBarGeometry(source: "render sample=\(sample) requestRev=\(requestedRevision)", force: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            let elapsed = ProcessInfo.processInfo.systemUptime - sampledAt
+            self.traceBarGeometry(source: "render.delayed sample=\(sample) requestRev=\(requestedRevision) elapsed=\(elapsed)", force: true)
+        }
+    }
+
+    private static func makeBarMarker(_ title: String) -> UILabel {
+        let marker = UILabel()
+        marker.text = title
+        marker.font = .boldSystemFont(ofSize: 14)
+        marker.textAlignment = .center
+        marker.textColor = .white
+        marker.backgroundColor = .red
+        marker.isUserInteractionEnabled = false
+        marker.isAccessibilityElement = false
+        return marker
+    }
+
+    private func layoutBarMarkers() {
+        // Separate x positions allow all three to be distinguished in one screenshot.
+        // B is a direct scroll child, outside candidateStack, but still scrolls in
+        // UIScrollView's content coordinates. No inset/offset compensation is applied.
+        barMarkerRoot.frame = CGRect(x: 70, y: candidateScroll.frame.minY + 5, width: 24, height: 24)
+        barMarkerScroll.frame = CGRect(x: 38, y: 5, width: 24, height: 24)
+        barMarkerContent.frame = CGRect(x: 6, y: 5, width: 24, height: 24)
+    }
+
+    private func barMarkerGeometry(_ name: String, marker: UIView) -> String {
+        var chain: [String] = []
+        var ancestor: UIView? = marker
+        while let v = ancestor {
+            let windowRect = v.window.map { String(describing: v.convert(v.bounds, to: $0)) } ?? "nil"
+            chain.append("\(type(of: v)){frame=\(v.frame) bounds=\(v.bounds) win=\(windowRect) hidden=\(v.isHidden) alpha=\(v.alpha) clips=\(v.clipsToBounds) masksToBounds=\(v.layer.masksToBounds) mask=\(v.layer.mask != nil) transform=\(v.transform) layerTransform=\(v.layer.transform)}")
+            ancestor = v.superview
+        }
+        return "marker\(name)=" + chain.joined(separator: ">")
+    }
+
+    private func barLayerGeometry(_ name: String, layer: CALayer) -> String {
+        func state(_ value: CALayer) -> String {
+            "bounds=\(value.bounds) position=\(value.position) opacity=\(value.opacity)"
+        }
+        let presentation = layer.presentation().map { state($0) } ?? "nil"
+        return "\(name).model={\(state(layer))} \(name).presentation={\(presentation)}"
     }
     /// 実機診断 (build 44): build 43 のトレースでデータ経路 (vc.schedule →
     /// svc.result → vc.applied → bar.render) は全段正常と確定したのに、画面の
     /// 候補欄は空のまま。残る容疑はピクセル側 (帯の実ジオメトリ・クリッピング・
     /// キーの不可視描画) なので、レイアウト確定後と renderState のたびに
-    /// 候補バー周辺の実寸・実状態を採取し、値が変わったときだけ残す。
-    private func traceBarGeometry(source: String) {
+    /// Layout は差分のみ、render と約0.5秒後のペアは同値でも両方残す。
+    private func traceBarGeometry(source: String, force: Bool = false) {
         func rect(_ r: CGRect) -> String {
             String(format: "%.1f,%.1f,%.1f,%.1f", r.origin.x, r.origin.y, r.size.width, r.size.height)
         }
         func color(_ c: UIColor?) -> String { c.map { String(describing: $0) } ?? "nil" }
         var parts: [String] = []
+        parts.append("rev=\(revision)")
         parts.append("view=\(rect(view.frame))")
         parts.append("inputView=\(inputView.map { rect($0.frame) } ?? "nil")")
         parts.append("winFrame=\(view.window.map { rect($0.frame) } ?? "nil")")
         parts.append("heightC=\(heightConstraint.map { String(format: "%.1f", $0.constant) } ?? "nil")")
         parts.append("scroll.frame=\(rect(candidateScroll.frame))")
         parts.append("scroll.bounds=\(rect(candidateScroll.bounds))")
+        parts.append("scroll.contentOffset=\(candidateScroll.contentOffset)")
+        parts.append("scroll.contentInset=\(candidateScroll.contentInset)")
+        parts.append("scroll.adjustedContentInset=\(candidateScroll.adjustedContentInset)")
+        parts.append("root.safeAreaInsets=\(view.safeAreaInsets)")
+        parts.append(barLayerGeometry("scroll", layer: candidateScroll.layer))
         parts.append("scroll.contentSize=\(String(format: "%.1f,%.1f", candidateScroll.contentSize.width, candidateScroll.contentSize.height))")
         parts.append("scroll.hidden=\(candidateScroll.isHidden) alpha=\(String(format: "%.2f", candidateScroll.alpha))")
         if let window = candidateScroll.window {
@@ -1165,6 +1233,8 @@ final class KeyboardViewController: UIInputViewController {
         }
         parts.append("stack.frame=\(rect(candidateStack.frame)) arranged=\(candidateStack.subviews.count)")
         if let key = candidateKeys.first {
+            parts.append(barLayerGeometry("key0", layer: key.layer))
+            parts.append("key0.actionRev=\(key.actionRevision)")
             parts.append("key0.frame=\(rect(key.frame))")
             if let window = key.window {
                 parts.append("key0.win=\(rect(key.convert(key.bounds, to: window)))")
@@ -1190,8 +1260,11 @@ final class KeyboardViewController: UIInputViewController {
             ancestor = v.superview
         }
         parts.append("chain=" + chain.joined(separator: ">"))
+        parts.append(barMarkerGeometry("A", marker: barMarkerRoot))
+        parts.append(barMarkerGeometry("B", marker: barMarkerScroll))
+        parts.append(barMarkerGeometry("C", marker: barMarkerContent))
         let signature = parts.joined(separator: " ")
-        guard signature != lastBarGeometrySignature else { return }
+        guard force || signature != lastBarGeometrySignature else { return }
         lastBarGeometrySignature = signature
         DiagTrace.shared.record(event: "bar.geometry", detail: "src=\(source) " + signature)
     }
