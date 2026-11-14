@@ -57,7 +57,13 @@ actor ConversionService {
             Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
             return top
         }
-        let reranked = scorer.rerank(top)
+        // 常用漢字ボーナス: LM スコアに字種の調整を加えて最終順位にする
+        // (JoyoKanji 参照)。学習候補はペナルティ対象外。
+        let scores = scorer.score(top)
+        let order = joyoAdjustedOrder(
+            candidates: top, scores: scores, joyo: JoyoKanji.shared,
+            penaltyExempt: Set(learningCandidates.keys))
+        let reranked = order.map { top[$0] }
         // タイポ補正: 勝者の LM スコアが低いときだけ、1編集バリアントの
         // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
         let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
