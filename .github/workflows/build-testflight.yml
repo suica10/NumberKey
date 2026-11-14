@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 60
     env:
       TEAM_ID: F8X8H9J6AY
