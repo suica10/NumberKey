@@ -91,7 +91,10 @@ actor ConversionService {
     /// マージン以上上回る場合に限り、プールの上位で置き換える。
     /// それ以外 (ゲート不発・バリアント無し・プールが伸びない) は
     /// 通常の並びをそのまま返す。
+    /// v0.3.32: TypoCorrection.enabled = false のため常に不発
+    /// (実機で遅すぎると判断された。スイッチを戻せば復活する)。
     private func typoCorrected(input: String, ranked: [String], converter: KanaKanjiConverter, scorer: RerankScorer) -> [String] {
+        guard TypoCorrection.enabled else { return ranked }
         guard let winner = ranked.first else { return ranked }
         let winnerSum = scorer.score([winner])[0]
         let winnerAvg = winnerSum / Float(TypoCorrection.tokenCount(of: winner))

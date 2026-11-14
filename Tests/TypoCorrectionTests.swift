@@ -51,8 +51,15 @@ final class TypoCorrectionTests: XCTestCase {
             "variant containment parity too low: \(containmentAgreements)/\(fixture.items.count)")
     }
 
-    /// 実サービス経由のゲート方針: タイポが回復し、正常入力を壊さない。
+    /// 実サービス経由のゲート方針。
+    /// v0.3.32 では TypoCorrection.enabled = false (実機で遅すぎると
+    /// 判断され無効化) なので、サービス経由ではタイポが回復せず
+    /// ベースライン (実測 0.000) に留まり、正常入力も壊れないこと
+    /// を固定する。再有効化するときは、較正バンド (recovery >=
+    /// 0.479 - 0.10、dethrone <= 0.025 + 0.05) のアサートに戻すこと。
     func testGatedPolicyRecoversTyposWithoutDethroningClean() async throws {
+        XCTAssertFalse(TypoCorrection.enabled,
+                       "v0.3.32 ships with the typo correction disabled (too slow on device)")
         let fixture = try loadFixture()
         // SwiftPM テストでは重みが Bundle.main に無い (RerankScorer.shared
         // は nil) ので、リポジトリ内の重みを直接差し込む (本番経路は shared)。
@@ -89,10 +96,11 @@ final class TypoCorrectionTests: XCTestCase {
         let n = Double(fixture.items.count)
         let recovery = Double(recovered) / n
         let dethrone = Double(dethroned) / Double(cleanScored)
-        // オフライン実測 (Python): recovery=0.479, dethrone=0.025。
-        XCTAssertGreaterThanOrEqual(recovery, 0.35, "typo recovery collapsed: \(recovery)")
-        XCTAssertGreaterThanOrEqual(recovery, 0.479 - 0.10,
-                                    "typo recovery below calibrated band: \(recovery)")
+        // 無効化中の期待値: 補正なしの実測 (Python) recovery=0.000、
+        // ポート誤差の揺れを見ても 0.10 未満に留まるはず。有効時の
+        // 較正バンド (recovery=0.479, dethrone=0.025) とは対の固定。
+        XCTAssertLessThanOrEqual(recovery, 0.10,
+                                 "correction must be inert while disabled, recovery: \(recovery)")
         XCTAssertLessThanOrEqual(dethrone, 0.10, "clean dethrone too high: \(dethrone)")
         XCTAssertLessThanOrEqual(dethrone, 0.025 + 0.05,
                                  "clean dethrone above calibrated band: \(dethrone)")
