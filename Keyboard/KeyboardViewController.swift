@@ -30,12 +30,10 @@ final class KeyboardViewController: UIInputViewController {
     private var waitingSpaceCount = 0
     private var conversionTask: Task<Void, Never>?
     private var deleteTimer: Timer?
-    /// build 52: ルートビュー（loadView で差し替える KeyboardInputView）。
-    /// 要求高さはこのビューの requestedHeight で公開する。build 53 からは
-    /// ルートの高さ制約（優先度999）にも同じ値を同時に出す（二重化）。
-    private var keyboardInputView: KeyboardInputView?
-    /// build 53: 復活させたルート高さ制約。定数は updateRequestedHeight()
-    /// が requestedHeight と同時に更新する（単一の公開地点）。
+    /// ルート高さ制約（優先度999）。定数は updateRequestedHeight() が
+    /// 更新する（単一の公開地点）。ビルド54で高さ方式をビルド45の構成に
+    /// 戻した：プレーンなルートビュー + この制約のみで交渉する
+    /// （詳細は updateRequestedHeight のコメント参照）。
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let candidateScroll = UIScrollView()
@@ -120,27 +118,15 @@ final class KeyboardViewController: UIInputViewController {
     private weak var openClipboardRow: PhraseRowView?
     private var isJapanese: Bool { settings.japanese }
 
-    /// build 52: ルートビューを KeyboardInputView に差し替え、inputView
-    /// としても同じインスタンスをインストールする（viewDidLoad で
-    /// サブビューが載る前に行う）。
-    /// build 53: 高さ制約（優先度999）を復活させ、requestedHeight と
-    /// 二重に公開する。実機CSVの比較で、ビルド45では view 高さが要求に
-    /// 追随していたのに、ビルド46（候補帯内部の Auto Layout → 手動
-    /// フレーム化）以降はホスト既定高さ（226/216）に固定されることが
-    /// 確定した。帯サブツリー内の Auto Layout 制約の存在がルートの高さ
-    /// 交渉の効きを左右している、という作業仮説に基づき、帯内の足場
-    /// （candidateSizer）と制約経路の両方を戻す。
-    override func loadView() {
-        let input = KeyboardInputView(frame: .zero, inputViewStyle: .default)
-        keyboardInputView = input
-        view = input
-        inputView = input
-        let height = input.heightAnchor.constraint(equalToConstant: input.requestedHeight)
-        height.priority = .init(999)
-        height.isActive = true
-        heightConstraint = height
-    }
-
+    // build 54: loadView は上書きしない。ルートビューは
+    // UIInputViewController 既定のプレーンなビューのままにし、高さは
+    // viewDidLoad で付ける優先度999の制約だけで交渉する（ビルド45の
+    // 構成）。ビルド52/53の KeyboardInputView（UIInputView サブクラス +
+    // systemLayoutSizeFitting / intrinsicContentSize 上書き）は、実機で
+    // 「セッション中の高さ増加（261→295）が反映されない」症状が出た
+    // ため廃止した（ビルド53のCSV: 帯なし c=261→b=261 は一致するが、
+    // 帯あり c=295 でも b=261 のまま）。帯内の Auto Layout 足場
+    // （candidateSizer）はビルド53で復活させたものを維持する。
     override func viewDidLoad() {
         super.viewDidLoad()
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
@@ -240,9 +226,12 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(expiredView)
         refreshPurchaseState()
         rebuildCanvas()
-        // 初期の要求高さも実レイアウトと同じ計算式 (layoutMetrics) から
-        // 決める。以降は状態が変わるたびに updateRequestedHeight() が
+        // ルート高さ制約（優先度999、ビルド45と同じ付け方）。初期値は
+        // 仮置きで、直後の updateRequestedHeight() が layoutMetrics の
+        // 実計算値に更新する。以降も状態が変わるたびに同じ入口が
         // 候補バーの有無込みで公開し続ける。
+        let height = view.heightAnchor.constraint(equalToConstant: 270)
+        height.priority = .init(999); height.isActive = true; heightConstraint = height
         updateRequestedHeight()
     }
 
@@ -424,8 +413,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         // 設定（キー高さ・記号モード等）で合計高さが変わりうるので、表示前に
         // 現在の状態の要求高さを公開しておく（build 50）。出現時は値が
-        // 同じでも再アサート（invalidate）して、ホスト側に再測定させる
-        // （build 52）。
+        // 同じでも定数をセットし直して、ホスト側に再測定させる。
         updateRequestedHeight(force: true)
     }
     override func viewWillDisappear(_ animated: Bool) {
@@ -494,22 +482,18 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// 要求高さを現在の状態の値に合わせてルートビューへ公開する
-    /// （高さの公開はここが唯一の入口）。build 53 では fitting 経路
-    /// （requestedHeight）と制約経路（heightConstraint、優先度999）の
-    /// 両方に同じ値を同時に出す。
+    /// （高さの公開はここが唯一の入口）。build 54 ではビルド45の方式に
+    /// 戻し、優先度999の高さ制約の定数を更新するだけにする
+    /// （KeyboardInputView の fitting 上書きは廃止）。
     /// 帯の表示/非表示が切り替わったその場（renderState）からも呼ぶことで、
     /// 高さの変更要求がレイアウトパスの完了を待たず、状態変化と同じ
-    /// ターンでホストへ伝わる。force のときは値が同じでも
-    /// invalidateIntrinsicContentSize() を呼んで再アサートする。
+    /// ターンでホストへ伝わる。force のときは値が同じでも定数を
+    /// セットし直して再レイアウトを促す。
     private func updateRequestedHeight(force: Bool = false) {
-        guard let input = keyboardInputView else { return }
         let width = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
         let total = layoutMetrics(width: width).totalHeight
-        if force || abs(input.requestedHeight - total) > 0.5 {
-            input.requestedHeight = total
+        if force || abs((heightConstraint?.constant ?? 0) - total) > 0.5 {
             heightConstraint?.constant = total
-            input.invalidateIntrinsicContentSize()
-            input.setNeedsLayout()
             view.setNeedsLayout()
         }
     }
@@ -619,7 +603,7 @@ final class KeyboardViewController: UIInputViewController {
     /// （build 51 の検証用一時コード。次ビルドで DiagTrace ごと削除する）。
     private func traceHeightIfChanged() {
         let signature = String(format: "c=%.0f b=%.0f cb=%.0f strip=%d",
-                               keyboardInputView?.requestedHeight ?? -1,
+                               heightConstraint?.constant ?? -1,
                                view.bounds.height,
                                canvas.frame.maxY,
                                showsCandidateStrip ? 1 : 0)
