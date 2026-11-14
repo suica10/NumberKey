@@ -81,6 +81,14 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+        # The keyboard imports the converter module, whose dependency chain
+        # ends in SwiftyMarisa's C++-only marisa_trie module. Without C++
+        # interoperability, this target's Swift frontend tries to build
+        # marisa_trie as an Objective-C module and fails on its C++
+        # headers ('namespace' / <cstdio> errors) under Xcode 27. The
+        # converter's own targets already compile with Cxx interop via
+        # their package traits; the consuming target needs it too.
+        SWIFT_OBJC_INTEROP_MODE: objcxx
     info:
       path: Keyboard/Info.plist
       properties:
