@@ -64,11 +64,40 @@ actor ConversionService {
             candidates: top, scores: scores, joyo: JoyoKanji.shared,
             penaltyExempt: Set(learningCandidates.keys))
         let reranked = order.map { top[$0] }
+        joyoProbe(input: composition.convertTarget, top: top, scores: scores)
         // タイポ補正: 勝者の LM スコアが低いときだけ、1編集バリアントの
         // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
         let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
         Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
         return corrected
+    }
+
+    /// [probe/joyo-device 診断用] 実機の拡張プロセス内で JoyoKanji.shared の
+    /// 実状態と候補ごとの raw/調整量を App Group の joyo-probe.csv に
+    /// 固定長フォーマットで 1 変換 1 行追記する。診断専用ブランチのみの
+    /// コードで、本流には入れない。
+    private func joyoProbe(input: String, top: [String], scores: [Float]) {
+        let joyo = JoyoKanji.shared
+        var line = String(
+            format: "input=%@ nil=%d n=%04d src=%@",
+            input, joyo == nil ? 1 : 0, joyo?.allowed.count ?? 0, joyo?.loadSource ?? "-")
+        for i in top.prefix(6).indices {
+            let adj = joyo?.adjustment(
+                for: top[i], penaltyExempt: learningCandidates[top[i]] != nil) ?? 0
+            line += String(format: " [%@|raw=%7.2f|adj=%+6.2f]", top[i], scores[i], adj)
+        }
+        line += "\n"
+        guard let dir = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.jp.onejpkey.NumberKey")
+        else { return }
+        let url = dir.appendingPathComponent("joyo-probe.csv")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            if let data = line.data(using: .utf8) { try? handle.write(contentsOf: data) }
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     /// 変換器に問い合わせ、入力全体に対応する候補だけを返す (部分確定で

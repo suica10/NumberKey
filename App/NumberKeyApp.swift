@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct NumberKeyApp: App {
@@ -12,6 +13,8 @@ struct SettingsView: View {
     @State private var packEnabled: [DictionaryPackID: Bool] = [:]
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
+    /// [probe/joyo-device 診断用] 拡張が App Group に書いた joyo-probe.csv の内容。
+    @State private var probeText: String?
     @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
     /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
     private var displayState: PurchaseState { store.isPurchased ? .unlocked : gateState }
@@ -93,6 +96,19 @@ struct SettingsView: View {
                     Text("削除を長押し：連続削除")
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → One Keyboard")
                 }
+                Section("診断") {
+                    if let probeText {
+                        Text(probeText)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    } else {
+                        Text("診断データはまだありません。キーボードを開いて日本語を入力すると記録されます。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Button("再読み込み") { loadProbeText() }
+                    Button("コピー") { UIPasteboard.general.string = probeText }
+                        .disabled(probeText == nil)
+                }
                 Section {
                     Text("One Keyboard v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-") ・ iOS 17以降").foregroundStyle(.secondary)
                     NavigationLink("オープンソースライセンス") {
@@ -112,6 +128,7 @@ struct SettingsView: View {
             .onChange(of: store.isPurchased) { _, purchased in
                 if purchased { gateState = .unlocked }
             }
+            .onAppear { loadProbeText() }
         }
     }
     @ViewBuilder
@@ -129,6 +146,14 @@ struct SettingsView: View {
         Button("購入を復元") { Task { await store.restore() } }
             .disabled(store.isWorking)
         if store.isWorking { ProgressView() }
+    }
+    /// [probe/joyo-device 診断用] キーボード拡張が App Group に書いた
+    /// joyo-probe.csv (JoyoKanji.shared の実状態 + 候補ごとの raw/調整量) を読む。
+    private func loadProbeText() {
+        guard let dir = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.jp.onejpkey.NumberKey")
+        else { probeText = nil; return }
+        probeText = try? String(contentsOf: dir.appendingPathComponent("joyo-probe.csv"), encoding: .utf8)
     }
     private var licenseText: String {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),

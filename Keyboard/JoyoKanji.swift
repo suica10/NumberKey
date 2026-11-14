@@ -28,14 +28,16 @@ final class JoyoKanji {
     /// Bundle.main → Bundle(for:) → コード埋め込みリストの順に試し、
     /// リソース都合で調整が丸ごと無効化される経路を塞ぐ (ビルド61)。
     static let shared: JoyoKanji? = {
-        let bundles = [Bundle.main, Bundle(for: JoyoKanji.self)]
-        for bundle in bundles {
-            if let url = bundle.url(forResource: "joyo_kanji", withExtension: "txt"),
+        let bundles: [(bundle: Bundle, source: String)] = [
+            (Bundle.main, "M"), (Bundle(for: JoyoKanji.self), "F"),
+        ]
+        for entry in bundles {
+            if let url = entry.bundle.url(forResource: "joyo_kanji", withExtension: "txt"),
                let text = try? String(contentsOf: url, encoding: .utf8) {
-                return JoyoKanji(text: text)
+                return JoyoKanji(text: text, loadSource: entry.source)
             }
         }
-        return JoyoKanji(text: JoyoKanji.embeddedList)
+        return JoyoKanji(text: JoyoKanji.embeddedList, loadSource: "E")
     }()
 
     /// joyo_kanji.txt と同一内容の埋め込みコピー (最終フォールバック用)。
@@ -58,12 +60,18 @@ final class JoyoKanji {
     /// 常用+人名用の許可集合 (Unicode スカラ値)。
     let allowed: Set<UInt32>
 
-    init(text: String) {
+    /// [probe/joyo-device 診断用] shared がどの経路で読み込まれたか:
+    /// "M" = Bundle.main のリソース、"F" = Bundle(for:) のリソース、
+    /// "E" = コード埋め込みリスト。それ以外 (テスト等) は "?"。
+    let loadSource: String
+
+    init(text: String, loadSource: String = "?") {
         var set = Set<UInt32>()
         for scalar in text.unicodeScalars where JoyoKanji.isKanji(scalar.value) {
             set.insert(scalar.value)
         }
         allowed = set
+        self.loadSource = loadSource
     }
 
     /// 字種判定の対象とする漢字ブロック。々 (U+3005) などの繰り返し記号は
