@@ -40,6 +40,8 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStripHeight: CGFloat = 34
     /// 現在の状態で帯が占める高さ（非表示なら 0）。
     private var currentCandidateHeight: CGFloat { showsCandidateStrip ? candidateStripHeight : 0 }
+    /// build 51 の高さ検証トレース用：前回記録した署名（変化した時だけ記録する）。
+    private var lastHeightSignature = ""
     // build 48: candidateStack コンテナは廃止。候補キーは candidateScroll の
     // 直下に直接置く (詳細は renderState の配置ブロックのコメント参照)。
     private var candidateKeys: [CandidateKey] = []
@@ -108,6 +110,12 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // build 51: UIInputView が自律的にサイズを決められるようにする。
+        // これが無いと、ホスト側がこちらの高さ制約 (999) を採用せず、
+        // システム既定の高さ (実機では 226) に固定してしまう場面がある
+        // (ビルド47の診断CSVで実フレーム 226 vs 制約 261/295 を確認)。
+        // 高さ制約の作成より前に設定すること。
+        (view as? UIInputView)?.allowsSelfSizing = true
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
         ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
@@ -547,7 +555,23 @@ final class KeyboardViewController: UIInputViewController {
         }
         // 高さ制約は関数の先頭で metrics.totalHeight に更新済み。
         // 配置したフレームの合計と常に一致する（build 50）。
+        traceHeightIfChanged()
     }
+
+    /// 高さ関係の値（制約定数 c・実フレーム高さ b・キャンバス下端 cb・
+    /// 帯の有無 strip）を、署名が変わったときだけ DiagTrace に記録する
+    /// （build 51 の検証用一時コード。次ビルドで DiagTrace ごと削除する）。
+    private func traceHeightIfChanged() {
+        let signature = String(format: "c=%.0f b=%.0f cb=%.0f strip=%d",
+                               heightConstraint?.constant ?? -1,
+                               view.bounds.height,
+                               canvas.frame.maxY,
+                               showsCandidateStrip ? 1 : 0)
+        guard signature != lastHeightSignature else { return }
+        lastHeightSignature = signature
+        DiagTrace.shared.record(event: "h", detail: signature)
+    }
+
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         syncHostChange()
