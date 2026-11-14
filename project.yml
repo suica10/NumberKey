@@ -8,13 +8,23 @@ settings:
     SWIFT_VERSION: '5.0'
     TARGETED_DEVICE_FAMILY: '1,2'
     MARKETING_VERSION: '0.3.34'
-    CURRENT_PROJECT_VERSION: '39'
+    CURRENT_PROJECT_VERSION: '40'
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 packages:
   Converter:
     path: Vendor/AzooKeyKanaKanjiConverter
+    # The converter links its llama.cpp binary target only when the Zenzai /
+    # ZenzaiCPU traits are enabled (SwiftPM traits, tools 6.1). Xcode 16
+    # ignored traits so the real llama was always linked; Xcode 27 honors
+    # them, so without this selection the module falls back to llama mock
+    # stubs and conversion returns no candidates on device. Enabling both
+    # traits reproduces the Xcode 16 behavior. Requires XcodeGen >= 2.46.0
+    # (see build-testflight.yml, which enforces the version).
+    traits:
+      - Zenzai
+      - ZenzaiCPU
 targets:
   NumberKey:
     type: application

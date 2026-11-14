@@ -30,8 +30,19 @@ jobs:
         run: bash scripts/bootstrap.sh
       - name: Generate Xcode project
         run: |
-          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          # project.yml selects SwiftPM traits (Zenzai/ZenzaiCPU) for the
+          # Converter package. Writing package traits into the generated
+          # project requires XcodeGen >= 2.46.0, so upgrade/install instead
+          # of trusting a possibly older preinstalled copy, which would
+          # silently drop the trait selection.
+          brew upgrade xcodegen || brew install xcodegen
+          xcodegen --version
           xcodegen generate
+          # Fail loudly if the trait selection did not reach the project:
+          # without Zenzai/ZenzaiCPU the converter links llama.cpp mock
+          # stubs and the keyboard shows no conversion candidates.
+          grep -q 'Zenzai' NumberKey.xcodeproj/project.pbxproj
+          grep -q 'ZenzaiCPU' NumberKey.xcodeproj/project.pbxproj
       - name: Cache SwiftPM test build
         uses: actions/cache@v4
         with:
@@ -116,6 +127,13 @@ jobs:
           xcrun altool --upload-app --type ios -f "$IPA_PATH" \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" \
             2>&1 | tee build/upload.log
+      - name: Retain exported IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-keyboard-ipa-${{ github.run_number }}
+          path: build/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
