@@ -1,4 +1,5 @@
 import XCTest
+import KanaKanjiConverterModuleWithDefaultDictionary
 @testable import KeyboardConversion
 
 /// 常用漢字ボーナス (ビルド60、61 で強化) のゲート:
@@ -9,6 +10,9 @@ import XCTest
 ///    含むケースでも致命的に沈まない。「くるま → 車 1位」(ビルド61) を含む
 /// 4. JoyoKanji.shared が埋め込みフォールバックで必ず読み込めること
 ///    (ビルド60 実機で調整が無効化された事象の回帰防止)
+/// 5. 製品経路 (実変換器 + ConversionService.candidates) で常用外候補に
+///    ペナルティが実際に効くこと (ビルド60〜63 で learningCandidates
+///    経由の免除がペナルティを無効化していた事象の回帰防止)
 final class JoyoKanjiTests: XCTestCase {
     private struct FixtureItem: Decodable {
         let candidates: [String]
@@ -100,6 +104,35 @@ final class JoyoKanjiTests: XCTestCase {
             if let rankAfter, let rankBefore {
                 XCTAssertLessThanOrEqual(rankAfter, item.maxRankAfter,
                     "\(item.kana): expected \(item.expected) の調整後順位 \(rankAfter) (前 \(rankBefore)) が許容 \(item.maxRankAfter) を超えた")
+            }
+        }
+    }
+
+    /// 回帰 (ビルド64): 製品経路そのもののテスト。フィクスチャ系テストは
+    /// joyoAdjustedOrder に penaltyExempt を直接渡すため、製品側の渡し方
+    /// の事故を検出できない。実際ビルド60〜63 では、製品側が
+    /// learningCandidates のキーを免除として渡し、その集合が変換器の
+    /// isLearningTarget フラグ (「くるま」上位12件すべて true と実測)
+    /// 由来でほぼ全候補を含んだため、ペナルティが丸ごと無効化された。
+    /// 実変換器 + 実LM + ConversionService.candidates を通し、
+    /// isLearningTarget=true の常用外候補 (俥・輅) より 車 が上位に
+    /// 来ることを確認する。
+    func testKurumaPenaltyAppliesThroughService() async throws {
+        let scorer = try RerankScorer(
+            weightsURL: repoURL("../Keyboard/rerank_weights.bin"),
+            vocabURL: repoURL("../Keyboard/rerank_vocab.json"))
+        ConversionService.scorerOverride = scorer
+        defer { ConversionService.scorerOverride = nil }
+        let service = ConversionService()
+        var composition = ComposingText()
+        composition.insertAtCursorPosition("kuruma", inputStyle: .roman2kana)
+        let results = await service.candidates(for: composition, generation: 1) ?? []
+        let carRank = results.firstIndex(of: "車")
+        XCTAssertNotNil(carRank, "車 が候補に無い: \(results)")
+        for outside in ["俥", "輅"] {
+            if let outsideRank = results.firstIndex(of: outside), let carRank {
+                XCTAssertLessThan(carRank, outsideRank,
+                    "\(outside) (常用外・isLearningTarget=true) が 車 より上位: \(results)")
             }
         }
     }

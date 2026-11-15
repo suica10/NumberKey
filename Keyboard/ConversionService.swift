@@ -58,11 +58,18 @@ actor ConversionService {
             return top
         }
         // 常用漢字ボーナス: LM スコアに字種の調整を加えて最終順位にする
-        // (JoyoKanji 参照)。学習候補はペナルティ対象外。
+        // (JoyoKanji 参照)。ペナルティ免除は渡さない。以前は
+        // learningCandidates のキーを免除していたが、その集合は
+        // 「ユーザーが実際に選んで学習した候補」ではなく、変換器が
+        // isLearningTarget を立てた候補の集合であり、辞書候補のほぼ
+        // 全てが該当する (実測: 「くるま」上位12件すべて true)。
+        // そのため常用外候補へのペナルティが実機で丸ごと無効化されて
+        // いた (ビルド60〜63)。learningCandidates は learn() での
+        // 学習確定のためにだけ使う。
         let scores = scorer.score(top)
         let order = joyoAdjustedOrder(
             candidates: top, scores: scores, joyo: JoyoKanji.shared,
-            penaltyExempt: Set(learningCandidates.keys))
+            penaltyExempt: [])
         let reranked = order.map { top[$0] }
         // タイポ補正: 勝者の LM スコアが低いときだけ、1編集バリアントの
         // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
