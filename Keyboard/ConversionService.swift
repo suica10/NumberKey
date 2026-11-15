@@ -71,16 +71,12 @@ actor ConversionService {
             candidates: top, scores: scores, joyo: JoyoKanji.shared,
             penaltyExempt: [])
         let reranked = order.map { top[$0] }
-        // タイポ補正: 勝者の LM スコアが低いときだけ、1編集バリアントの
-        // 候補プールで差し替えを試す (ゲート付き。TypoCorrection 参照)。
-        let corrected = typoCorrected(input: composition.convertTarget, ranked: reranked, converter: converter, scorer: scorer)
         Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
-        return corrected
+        return reranked
     }
 
     /// 変換器に問い合わせ、入力全体に対応する候補だけを返す (部分確定で
-    /// 後続を捨てる候補は出さない)。通常変換とタイポ補正のバリアント
-    /// 変換で共有する。
+    /// 後続を捨てる候補は出さない)。
     private func fullInputCandidates(for composition: ComposingText, converter: KanaKanjiConverter) -> [String] {
         let results = converter.requestCandidates(composition, options: .init(
             N_best: 4,
@@ -105,43 +101,6 @@ actor ConversionService {
             if candidate.isLearningTarget { learningCandidates[candidate.text] = candidate }
             return candidate.text
         }
-    }
-
-    /// ゲート付きタイポ補正。勝者の lm_avg が閾値未満なら、入力の
-    /// 1編集バリアントを変換して候補をプールし、プール最良が勝者を
-    /// マージン以上上回る場合に限り、プールの上位で置き換える。
-    /// それ以外 (ゲート不発・バリアント無し・プールが伸びない) は
-    /// 通常の並びをそのまま返す。
-    /// v0.3.32: TypoCorrection.enabled = false のため常に不発
-    /// (実機で遅すぎると判断された。スイッチを戻せば復活する)。
-    private func typoCorrected(input: String, ranked: [String], converter: KanaKanjiConverter, scorer: RerankScorer) -> [String] {
-        guard TypoCorrection.enabled else { return ranked }
-        guard let winner = ranked.first else { return ranked }
-        let winnerSum = scorer.score([winner])[0]
-        let winnerAvg = winnerSum / Float(TypoCorrection.tokenCount(of: winner))
-        guard winnerAvg < TypoCorrection.gateThresholdAvg else { return ranked }
-        let variants = TypoCorrection.variantKanas(forKana: input)
-        guard !variants.isEmpty else { return ranked }
-        var pool = ranked
-        var seen = Set(ranked)
-        for variant in variants {
-            var composition = ComposingText()
-            composition.insertAtCursorPosition(variant, inputStyle: .direct)
-            for candidate in fullInputCandidates(for: composition, converter: converter)
-            where seen.insert(candidate).inserted {
-                pool.append(candidate)
-            }
-        }
-        guard pool.count > ranked.count else { return ranked }
-        let scores = scorer.score(pool)
-        guard let bestIndex = scores.indices.max(by: { scores[$0] < scores[$1] }),
-              pool[bestIndex] != winner,
-              scores[bestIndex] - winnerSum >= TypoCorrection.marginSum
-        else { return ranked }
-        let order = pool.indices.sorted { a, b in
-            scores[a] != scores[b] ? scores[a] > scores[b] : a < b
-        }
-        return order.prefix(12).map { pool[$0] }
     }
 
     func learn(_ text: String) {

@@ -71,7 +71,11 @@ final class JoyoKanjiTests: XCTestCase {
             if let rank, rank <= 3 { top3 += 1 }
         }
         XCTAssertGreaterThanOrEqual(hits, 90, "top-1 は現行 0.865 (90/104) を下回らないこと: \(hits)/104")
-        XCTAssertEqual(top3, 104, "top-3 は現行 1.000 (104/104) を下回らないこと: \(top3)/104")
+        // LM v2 の実測トレードオフ: top-1 は 0.913 (v1: 0.865) に上がる
+        // 一方、top-3 は 103/104 で v1 の 104/104 から 1 件だけ低い。
+        // この 1 件の低下はユーザーの 2026-11-15 の「全部入り」決定で
+        // 受け入れ済みのため、下限は v2 実測の 103/104 とする。
+        XCTAssertGreaterThanOrEqual(top3, 103, "top-3 は v2 実測 0.990 (103/104) を下回らないこと: \(top3)/104")
     }
 
     /// ビルド60 の実機では JoyoKanji.shared の読み込み失敗で調整が丸ごと
