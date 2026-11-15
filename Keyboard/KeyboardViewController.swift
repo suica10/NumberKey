@@ -88,6 +88,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var englishExtraValues: Set<String> = []
     private let dictionaryStore = DictionaryPackStore()
     private let dictionaryLibrary = DictionaryPackLibrary()
+    private let selectionHistory = SelectionHistoryStore()
     private var packExtraValues: Set<String> = []
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
     private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
@@ -1096,7 +1097,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             var seen = Set<String>()
             let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
             let withEnglish = self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot))
-            let newCandidates = Array(self.insertPackExtras(withEnglish, kana: snapshot.convertTarget).prefix(30))
+            let withPacks = self.insertPackExtras(withEnglish, kana: snapshot.convertTarget)
+            // 選択履歴は統合の最終段で適用する: 一度確定した候補は
+            // SNS の先頭固定よりも前に来る (優先順位: 履歴 > SNS > その他)。
+            let withHistory = SelectionHistoryStore.applyingHistory(
+                self.selectionHistory.choices(for: snapshot.convertTarget), to: withPacks)
+            let newCandidates = Array(withHistory.prefix(30))
             let candidatesChanged = newCandidates != self.candidates
             if candidatesChanged { self.candidates = newCandidates }
             self.conversionReady = true
@@ -1489,7 +1495,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         commit(text)
     }
     private func commit(_ text: String, learn: Bool = false) {
-        if learn { Task { await service.learn(text) } }
+        if learn {
+            // 確定した候補を (読み → 候補) で記録し、次回同じ読みでは
+            // 候補列の先頭に並べる。読みは候補生成に使った
+            // composition.convertTarget そのもの (確定で composition が
+            // リセットされる前に取る)。英字そのまま候補と辞書パック
+            // 候補は learn=false で来るため記録されない (shouldLearn 参照)。
+            selectionHistory.record(reading: composition.convertTarget, choice: text)
+            Task { await service.learn(text) }
+        }
         editor.commit(text)
         resetComposition()
     }
