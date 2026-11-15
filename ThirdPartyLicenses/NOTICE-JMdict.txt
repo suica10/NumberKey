@@ -1,0 +1,14 @@
+JMdict
+
+The anime dictionary pack in this app uses material derived from the
+JMdict Japanese-Multilingual Dictionary file.
+
+JMdict is the property of the Electronic Dictionary Research and
+Development Group (EDRDG), and is used in conformance with the Group's
+licence.
+
+JMdict is available under the Creative Commons
+Attribution-ShareAlike 4.0 International Licence (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Source: https://www.edrdg.org/jmdict/j_jmdict.html
