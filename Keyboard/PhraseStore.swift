@@ -70,6 +70,8 @@ struct TextBuffer: Equatable {
 final class PhraseStore {
     static let storageKey = "phrases.v2"
     private static let legacyImportedKey = "phrases.v2.legacyImported"
+    /// 空のまま保存された定型文を一度だけサンプルで立て直した記録。
+    private static let emptyReseedKey = "phrases.v2.emptyReseeded"
     /// 初回起動時のサンプル（旧実装のデフォルトと同じ）。
     static let seedPhrases = [
         "よろしくお願いします。",
@@ -90,10 +92,13 @@ final class PhraseStore {
     ///     サンプルで初期化する。全削除済みの場合は空の配列が返るので尊重される）。
     init(defaults: UserDefaults = .standard, legacyPhrases: () -> [String]? = { nil }) {
         self.defaults = defaults
+        let hadStoredBook: Bool
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(PhraseBook.self, from: data) {
             book = decoded.sanitized
+            hadStoredBook = true
         } else {
+            hadStoredBook = false
             book = PhraseBook()
             if !defaults.bool(forKey: Self.legacyImportedKey) {
                 book = legacyPhrases().map { PhraseBook(phrases: $0).sanitized }
@@ -101,6 +106,17 @@ final class PhraseStore {
                 persist()
                 defaults.set(true, forKey: Self.legacyImportedKey)
             }
+        }
+        // 空の本が保存されたまま固定される経路があった（初期の移行で空リストを
+        // 取り込んだ、等）。保存済みの本が空なら一度だけサンプルで立て直す。
+        // 立て直し後はフラグが立つので、利用者が意図して全消しした場合は
+        // その後の起動で再補充されることはない。
+        if hadStoredBook && book.phrases.isEmpty && !defaults.bool(forKey: Self.emptyReseedKey) {
+            book = PhraseBook(phrases: Self.seedPhrases)
+            persist()
+        }
+        if !book.phrases.isEmpty {
+            defaults.set(true, forKey: Self.emptyReseedKey)
         }
     }
 

@@ -799,6 +799,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         pendingAutocorrectUndo = nil
         if emojiCategoryIndex == 0 { rebuildEmojiGrid() }
     }
+    /// パネルの空状態などの注記行。PhraseRowView のカードと同じ左位置・
+    /// 上下余白にそろえる（素の UILabel を直接置くと、行のテキスト位置とずれる）。
+    private func panelNoteView(_ text: String) -> UIView {
+        let container = UIView()
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 15)
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10)
+        ])
+        return container
+    }
     private func rebuildClipboardRows() {
         for arranged in clipboardStack.arrangedSubviews {
             clipboardStack.removeArrangedSubview(arranged)
@@ -807,12 +827,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         openClipboardRow = nil
         let isLight = traitCollection.userInterfaceStyle == .light
         func noteRow(_ text: String) {
-            let label = UILabel()
-            label.text = text
-            label.font = .systemFont(ofSize: 15)
-            label.textColor = .secondaryLabel
-            label.numberOfLines = 0
-            clipboardStack.addArrangedSubview(label)
+            clipboardStack.addArrangedSubview(panelNoteView(text))
         }
         guard hasFullAccess else {
             noteRow("フルアクセスが必要です。設定 → 一般 → キーボード → One Keyboardで「フルアクセスを許可」をオンにしてください。")
@@ -854,11 +869,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let isLight = traitCollection.userInterfaceStyle == .light
         let phrases = phraseStore.phrases
         if phrases.isEmpty {
-            let label = UILabel()
-            label.text = "定型文はまだありません"
-            label.font = .systemFont(ofSize: 15)
-            label.textColor = .secondaryLabel
-            phraseStack.addArrangedSubview(label)
+            phraseStack.addArrangedSubview(panelNoteView("定型文はまだありません"))
         }
         for (index, phrase) in phrases.enumerated() {
             let row = PhraseRowView(phrase: phrase, isLight: isLight, reorderMode: pickerReorderMode,

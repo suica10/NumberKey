@@ -68,6 +68,27 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertEqual(legacyCalls, 1)
     }
 
+    func testEmptyStoredBookIsReseededOnce() {
+        // 初期の移行で空リストが保存された状態を再現する。
+        let first = PhraseStore(defaults: defaults, legacyPhrases: { [] })
+        XCTAssertEqual(first.phrases, [])
+        // 次回起動でサンプルが一度だけ補充される。
+        let second = PhraseStore(defaults: defaults)
+        XCTAssertEqual(second.phrases, PhraseStore.seedPhrases)
+        // 利用者が意図して全消ししたら、その後は再補充されない。
+        for _ in PhraseStore.seedPhrases { second.remove(at: 0) }
+        XCTAssertEqual(second.phrases, [])
+        let third = PhraseStore(defaults: defaults)
+        XCTAssertEqual(third.phrases, [])
+    }
+
+    func testNonEmptyStoredBookIsNotReseeded() {
+        let first = PhraseStore(defaults: defaults, legacyPhrases: { ["自分の文"] })
+        XCTAssertEqual(first.phrases, ["自分の文"])
+        let second = PhraseStore(defaults: defaults)
+        XCTAssertEqual(second.phrases, ["自分の文"])
+    }
+
     func testMoveReordersAndPersists() {
         let store = PhraseStore(defaults: defaults, legacyPhrases: { ["a", "b", "c"] })
         store.move(from: 2, to: 0)
