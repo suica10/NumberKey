@@ -703,6 +703,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        KeyboardSettings.recordActivation()
         captureClipboard()
     }
     private func showClipboardPanel() {
@@ -837,7 +838,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let items = clipboardStore.items
         if items.isEmpty { noteRow("履歴はまだありません") }
         for (index, item) in items.enumerated() {
-            let row = PhraseRowView(phrase: item, isLight: isLight, reorderMode: false, isFirst: false, isLast: false)
+            let alreadyPhrase = phraseStore.phrases.contains(item)
+            let row = PhraseRowView(phrase: item, isLight: isLight, reorderMode: false, isFirst: false, isLast: false,
+                                    showsRegister: true,
+                                    registerTitle: alreadyPhrase ? "登録済" : "定型文",
+                                    registerEnabled: !alreadyPhrase)
             row.onTap = { [weak self] in
                 guard let self else { return }
                 self.hideClipboardPanel()
@@ -848,6 +853,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             row.onDelete = { [weak self] in
                 self?.clipboardStore.remove(at: index)
                 self?.rebuildClipboardRows()
+            }
+            row.onRegister = { [weak self] in
+                guard let self else { return }
+                if self.phraseStore.add(item) { self.rebuildClipboardRows() }
             }
             row.onSwipeStart = { [weak self, weak row] in
                 guard let self, let row else { return }
@@ -1558,6 +1567,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
     var onTap: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onRegister: (() -> Void)?
     var onMoveUp: (() -> Void)?
     var onMoveDown: (() -> Void)?
     var onSwipeStart: (() -> Void)?
@@ -1565,11 +1575,20 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
     let panRecognizer = UIPanGestureRecognizer()
     private let card = UIButton(type: .system)
     private let deleteButton = UIButton(type: .system)
+    private let registerButton = UIButton(type: .system)
+    private let showsRegister: Bool
     private var panBase: CGFloat = 0
     private(set) var isOpen = false
     private static let deleteWidth: CGFloat = 76
+    private static let registerWidth: CGFloat = 76
+    /// スワイプで露出するアクション領域の幅（登録ボタンがある行は2つ分）。
+    private var revealWidth: CGFloat {
+        Self.deleteWidth + (showsRegister ? Self.registerWidth : 0)
+    }
 
-    init(phrase: String, isLight: Bool, reorderMode: Bool, isFirst: Bool, isLast: Bool) {
+    init(phrase: String, isLight: Bool, reorderMode: Bool, isFirst: Bool, isLast: Bool,
+         showsRegister: Bool = false, registerTitle: String = "定型文", registerEnabled: Bool = true) {
+        self.showsRegister = showsRegister
         super.init(frame: .zero)
         deleteButton.setTitle("削除", for: .normal)
         deleteButton.setTitleColor(.white, for: .normal)
@@ -1578,6 +1597,17 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
         deleteButton.layer.cornerRadius = 8
         deleteButton.addAction(UIAction { [weak self] _ in self?.onDelete?() }, for: .touchUpInside)
         addSubview(deleteButton)
+
+        if showsRegister {
+            registerButton.setTitle(registerTitle, for: .normal)
+            registerButton.setTitleColor(.white, for: .normal)
+            registerButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+            registerButton.backgroundColor = registerEnabled ? .systemBlue : .systemGray
+            registerButton.layer.cornerRadius = 8
+            registerButton.isEnabled = registerEnabled
+            registerButton.addAction(UIAction { [weak self] _ in self?.onRegister?() }, for: .touchUpInside)
+            addSubview(registerButton)
+        }
 
         card.contentHorizontalAlignment = .left
         card.titleLabel?.numberOfLines = 3
@@ -1641,13 +1671,22 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
             deleteButton.bottomAnchor.constraint(equalTo: bottomAnchor),
             deleteButton.widthAnchor.constraint(equalToConstant: Self.deleteWidth)
         ])
+        if showsRegister {
+            registerButton.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                registerButton.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor),
+                registerButton.topAnchor.constraint(equalTo: topAnchor),
+                registerButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+                registerButton.widthAnchor.constraint(equalToConstant: Self.registerWidth)
+            ])
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func setOpen(_ open: Bool, animated: Bool) {
         isOpen = open
-        let target = CGAffineTransform(translationX: open ? -Self.deleteWidth : 0, y: 0)
+        let target = CGAffineTransform(translationX: open ? -revealWidth : 0, y: 0)
         if animated {
             UIView.animate(withDuration: 0.2) { self.card.transform = target }
         } else {
@@ -1671,10 +1710,10 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
             panBase = card.transform.tx
             onSwipeStart?()
         case .changed:
-            let x = min(0, max(-Self.deleteWidth, panBase + gesture.translation(in: self).x))
+            let x = min(0, max(-revealWidth, panBase + gesture.translation(in: self).x))
             card.transform = CGAffineTransform(translationX: x, y: 0)
         case .ended, .cancelled:
-            let shouldOpen = card.transform.tx < -Self.deleteWidth / 2 || gesture.velocity(in: self).x < -300
+            let shouldOpen = card.transform.tx < -revealWidth / 2 || gesture.velocity(in: self).x < -300
             setOpen(shouldOpen, animated: true)
         default:
             break

@@ -122,6 +122,33 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.items, store.items)
     }
 
+    func testClipboardMigrationCopiesLegacyOnce() {
+        let legacy = UserDefaults(suiteName: "test.clipboard.legacy.\(UUID().uuidString)")!
+        let shared = UserDefaults(suiteName: "test.clipboard.shared.\(UUID().uuidString)")!
+        legacy.set(["a", "b"], forKey: ClipboardHistoryStore.storageKey)
+        ClipboardHistoryStore.migrateIfNeeded(from: legacy, to: shared)
+        XCTAssertEqual(shared.stringArray(forKey: ClipboardHistoryStore.storageKey), ["a", "b"])
+        XCTAssertTrue(shared.bool(forKey: ClipboardHistoryStore.migrationKey))
+        // 2回目は移行済みフラグで何もしない（削除した履歴が復活しない）
+        legacy.set(["c"], forKey: ClipboardHistoryStore.storageKey)
+        shared.set([], forKey: ClipboardHistoryStore.storageKey)
+        ClipboardHistoryStore.migrateIfNeeded(from: legacy, to: shared)
+        XCTAssertEqual(shared.stringArray(forKey: ClipboardHistoryStore.storageKey), [])
+    }
+
+    func testClipboardMigrationKeepsExistingSharedAndSkipsEmptyLegacy() {
+        let legacy = UserDefaults(suiteName: "test.clipboard.legacy.\(UUID().uuidString)")!
+        let shared = UserDefaults(suiteName: "test.clipboard.shared.\(UUID().uuidString)")!
+        // 旧保存先にキーが無い場合はフラグも立てない（別プロセスの空保存先対策）
+        ClipboardHistoryStore.migrateIfNeeded(from: legacy, to: shared)
+        XCTAssertFalse(shared.bool(forKey: ClipboardHistoryStore.migrationKey))
+        // 共有側に既に履歴があれば上書きしない
+        legacy.set(["old"], forKey: ClipboardHistoryStore.storageKey)
+        shared.set(["new"], forKey: ClipboardHistoryStore.storageKey)
+        ClipboardHistoryStore.migrateIfNeeded(from: legacy, to: shared)
+        XCTAssertEqual(shared.stringArray(forKey: ClipboardHistoryStore.storageKey), ["new"])
+    }
+
     func testTextBufferMarkedFlow() {
         var buffer = TextBuffer()
         buffer.setMarked("にほんご")

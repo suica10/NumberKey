@@ -67,6 +67,7 @@ jobs:
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
           PROFILE_APP_BASE64: ${{ secrets.PROFILE_APP_BASE64 }}
           PROFILE_KEYBOARD_BASE64: ${{ secrets.PROFILE_KEYBOARD_BASE64 }}
+          PROFILE_SHARE_BASE64: ${{ secrets.PROFILE_SHARE_BASE64 }}
           ASC_PRIVATE_KEY_P8: ${{ secrets.ASC_PRIVATE_KEY_P8 }}
         run: |
           set -euo pipefail
@@ -93,6 +94,8 @@ jobs:
             > ~/Library/MobileDevice/"Provisioning Profiles"/OneKeyboardAppStore.mobileprovision
           printf %s "$PROFILE_KEYBOARD_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/"Provisioning Profiles"/OneKeyboardKeyboardAppStore.mobileprovision
+          printf %s "$PROFILE_SHARE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/"Provisioning Profiles"/OneKeyboardShareAppStore.mobileprovision
       - name: Archive (manual signing)
         run: |
           set -euo pipefail

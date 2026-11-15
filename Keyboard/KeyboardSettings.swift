@@ -55,6 +55,19 @@ struct LayoutSettings: Codable, Equatable {
 
 struct KeyboardSettings {
     static let appGroupIdentifier = "group.jp.onejpkey.NumberKey"
+    /// キーボードが最後に開かれた時刻（本体アプリのセットアップガイドが
+    /// 「設定できたか」の判定に使う。書けるのはフルアクセス時だけなので、
+    /// 値があること自体がフルアクセス許可済みの証拠になる）。
+    static let lastActivatedKey = "keyboard.lastActivatedAt.v1"
+    static func recordActivation() {
+        UserDefaults(suiteName: appGroupIdentifier)?
+            .set(Date().timeIntervalSince1970, forKey: lastActivatedKey)
+    }
+    static var lastActivatedAt: Date? {
+        guard let t = UserDefaults(suiteName: appGroupIdentifier)?
+            .object(forKey: lastActivatedKey) as? Double else { return nil }
+        return Date(timeIntervalSince1970: t)
+    }
     static var sharedContainerAvailable: Bool {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) != nil
     }

@@ -18,6 +18,8 @@
 		<string>One Keyboard App Store</string>
 		<key>jp.onejpkey.NumberKey.Keyboard</key>
 		<string>One Keyboard Keyboard App Store</string>
+		<key>jp.onejpkey.NumberKey.ShareExtension</key>
+		<string>One Keyboard Share App Store</string>
 	</dict>
 </dict>
 </plist>

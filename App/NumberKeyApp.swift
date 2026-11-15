@@ -13,6 +13,9 @@ struct SettingsView: View {
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
     @State private var gateState: PurchaseState = PurchaseGate.evaluateForDisplay()
+    @AppStorage("setupGuide.seen.v1") private var setupGuideSeen = false
+    @State private var showSetupGuide = false
+    @State private var keyboardActivated = KeyboardSettings.lastActivatedAt != nil
     /// 購入状態の表示は StoreKit の確認結果を優先し、未確認の間は共有フラグ側の判定を使う。
     private var displayState: PurchaseState { store.isPurchased ? .unlocked : gateState }
     var body: some View {
@@ -38,6 +41,13 @@ struct SettingsView: View {
                     if let message = store.message {
                         Text(message).font(.footnote).foregroundStyle(.secondary)
                     }
+                }
+                Section("セットアップ") {
+                    Button("キーボードの設定方法") { showSetupGuide = true }
+                    Text(keyboardActivated
+                         ? "キーボードの起動を確認済みです（フルアクセス許可済み）。"
+                         : "まだキーボードが開かれていません。設定方法を確認してください。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("表示") {
                     Picker("配色", selection: $layout.theme) {
@@ -118,6 +128,13 @@ struct SettingsView: View {
             .onChange(of: store.isPurchased) { _, purchased in
                 if purchased { gateState = .unlocked }
             }
+            .sheet(isPresented: $showSetupGuide, onDismiss: { setupGuideSeen = true }) {
+                SetupGuideView()
+            }
+            .onAppear {
+                keyboardActivated = KeyboardSettings.lastActivatedAt != nil
+                if !setupGuideSeen { showSetupGuide = true }
+            }
         }
     }
     @ViewBuilder
@@ -140,5 +157,61 @@ struct SettingsView: View {
         guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8) else { return "ライセンス情報を読み込めませんでした。" }
         return text
+    }
+}
+
+/// 初回起動時に表示するセットアップガイド。キーボードの追加と
+/// フルアクセス許可の手順を案内する。キーボード設定画面への直接の
+/// リンクは iOS に無いため、手順は設定アプリの階層で示す。
+struct SetupGuideView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var activated = KeyboardSettings.lastActivatedAt != nil
+
+    private let steps = [
+        "設定アプリを開きます。",
+        "「一般」→「キーボード」→「キーボード」の順にタップします。",
+        "「新しいキーボードを追加…」から One Keyboard を選びます。",
+        "追加された One Keyboard をタップし、「フルアクセスを許可」をオンにします。",
+        "メモアプリなどでキーボードを切り替えて、One Keyboard が出れば完了です。"
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("キーボードの設定方法") {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text("\(index + 1)")
+                                .font(.footnote.weight(.bold))
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(Color.accentColor))
+                                .foregroundStyle(.white)
+                            Text(step)
+                        }
+                    }
+                }
+                Section("フルアクセスについて") {
+                    Text("フルアクセスは、定型文・クリップボード履歴・辞書パックなどのデータを本体アプリとキーボードで共有するために使います。入力した内容が端末の外に送信されることはありません。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("設定の確認") {
+                    if activated {
+                        Label("キーボードの起動を確認済みです", systemImage: "checkmark.circle")
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("まだキーボードが開かれていません。設定後にキーボードを一度開くと、ここに確認結果が表示されます。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button("再確認") { activated = KeyboardSettings.lastActivatedAt != nil }
+                    }
+                }
+            }
+            .navigationTitle("セットアップ")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .onAppear { activated = KeyboardSettings.lastActivatedAt != nil }
+        }
     }
 }
