@@ -1,6 +1,6 @@
 import UIKit
 
-enum KeyboardAction { case shift, delete, symbols, symbolPage, space, enter, paste }
+enum KeyboardAction { case shift, delete, symbols, space, enter, paste }
 
 final class KeyboardKey: UIButton {
     var normalColor: UIColor = .darkGray
@@ -38,29 +38,30 @@ final class KeyboardCanvas: UIView {
     private var popup: UILabel?
     private var shifted = false
     private var symbols = false
-    private var symbolPage = 0
+    private var japaneseMode = true
     private var dark: Bool { settings.theme == 2 || (settings.theme == 0 && traitCollection.userInterfaceStyle != .light) }
     private var keyColor: UIColor { dark ? UIColor(white: 0.38, alpha: 1) : .white }
 
-    func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, symbolPage: Int, japanese: Bool) {
+    func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, japanese: Bool) {
         self.settings = settings; self.shifted = shifted
-        self.symbols = symbols; self.symbolPage = symbolPage
+        self.symbols = symbols; self.japaneseMode = japanese
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; characterRows = []; bottom = []
         lastLayoutFont = -1  // キーを作り直したのでフォントを当て直させる
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
         if symbols {
+            // 記号は1画面に統合した (旧2ページ制は廃止)。[ ] { } は専用
+            // キーを置かず、( ) キー入力直後の変換候補から選ぶ。残りの
+            // ¥ はシフト位置のキーが担う (configure の shiftButton 参照)。
             let mainSymbols = ["-", "/", ":", ";", "(", ")", "$", "&", "@", String(UnicodeScalar(34)!)]
-            let extendedSymbols = ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]
-            let punctuation = [".", ",", "?", "!", "'"]
+            let secondSymbols = [".", ",", "?", "!", "'", "#", "%", "^", "*", "="]
             let backslash = String(UnicodeScalar(92)!)
-            let extraSymbols = ["_", backslash, "|", "~", "<", ">", "€", "£", "¥", "•"]
+            let thirdSymbols = ["_", backslash, "|", "~", "<", ">", "+", "€", "£", "•"]
             let digitRow = japanese ? LayoutSettings.standardRows[0].map(japaneseFullWidth) : LayoutSettings.standardRows[0]
-            let symbolRow = symbolPage == 0 ? mainSymbols : extendedSymbols
-            let punctuationRow = symbolPage == 0 ? punctuation : extraSymbols
             values = [digitRow,
-                      japanese ? symbolRow.map(japaneseFullWidth) : symbolRow,
-                      japanese ? punctuationRow.map(japaneseFullWidth) : punctuationRow]
+                      japanese ? mainSymbols.map(japaneseFullWidth) : mainSymbols,
+                      japanese ? secondSymbols.map(japaneseFullWidth) : secondSymbols,
+                      japanese ? thirdSymbols.map(japaneseFullWidth) : thirdSymbols]
         } else {
             values = LayoutSettings.standardRows
         }
@@ -87,10 +88,13 @@ final class KeyboardCanvas: UIView {
                 return button
             })
         }
-        shiftButton = makeKey(symbols ? (symbolPage == 0 ? "#+=" : "123") : "") { [weak self] in
-            self?.onAction?(symbols ? .symbolPage : .shift)
+        // 記号モードではシフト位置のキーを ¥ キーとして使う (ページ切替が
+        // 無くなって空いた枠)。文字キーなので touchDown で確定させる。
+        // 値 "¥" は VC 側で日本語モード時に ￥ へ全角化される。
+        shiftButton = makeKey(symbols ? (japanese ? "￥" : "¥") : "", commitOnDown: symbols) { [weak self] in
+            if symbols { self?.onText?("¥") } else { self?.onAction?(.shift) }
         }
-        shiftButton?.accessibilityLabel = symbols ? (symbolPage == 0 ? "その他の記号" : "数字記号") : "シフト"
+        shiftButton?.accessibilityLabel = symbols ? "円記号" : "シフト"
         if !symbols {
             let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleShift(_:)))
             doubleTap.numberOfTapsRequired = 2
@@ -178,7 +182,8 @@ final class KeyboardCanvas: UIView {
     }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
-        let rowCount: CGFloat = symbols ? 4 : 5
+        // 文字行4 + 下段1。記号モードも1画面化で文字行が4行になった。
+        let rowCount: CGFloat = 5
         return auxKeyHeight(width: width)
             + mainKeyHeight(width: width) * (rowCount - 1)
             + rowGap(width: width) * (rowCount - 1) + 7
@@ -188,7 +193,7 @@ final class KeyboardCanvas: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard characterRows.count == (symbols ? 3 : 4), bottom.count == 6 else { return }
+        guard characterRows.count == 4, bottom.count == 6 else { return }
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
         let verticalGap = rowGap(width: width)
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
@@ -206,7 +211,7 @@ final class KeyboardCanvas: UIView {
         for (rowIndex, row) in characterRows.enumerated() {
             let count = row.count
             let rowWidth: CGFloat
-            if symbols && rowIndex == 2 {
+            if symbols && rowIndex == 3 {
                 let available = width - 2 * edge - 2 * sideWidth - 2 * gap
                 rowWidth = min(keyWidth, (available - CGFloat(count - 1) * gap) / CGFloat(count))
             } else {
@@ -221,7 +226,7 @@ final class KeyboardCanvas: UIView {
                 if fontsChanged { key.titleLabel?.font = .systemFont(ofSize: font) }
             }
         }
-        let actionRow = symbols ? 2 : 3
+        let actionRow = 3
         let actionY = rowYs[actionRow]
         shiftButton?.frame = CGRect(x: edge, y: actionY, width: sideWidth, height: rowHeights[actionRow])
         deleteButton?.frame = CGRect(x: width - edge - sideWidth, y: actionY, width: sideWidth, height: rowHeights[actionRow])
@@ -230,7 +235,7 @@ final class KeyboardCanvas: UIView {
         if fontsChanged {
             let icon = UIImage.SymbolConfiguration(pointSize: font + 2, weight: .semibold)
             if symbols {
-                shiftButton?.titleLabel?.font = .systemFont(ofSize: 16)
+                shiftButton?.titleLabel?.font = .systemFont(ofSize: font)
             } else {
                 shiftButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
             }
@@ -269,7 +274,7 @@ final class KeyboardCanvas: UIView {
         }
         if symbols {
             if shiftButton?.image(for: .normal) != nil { shiftButton?.setImage(nil, for: .normal) }
-            let title = symbolPage == 0 ? "#+=" : "123"
+            let title = japaneseMode ? "￥" : "¥"
             if shiftButton?.title(for: .normal) != title { shiftButton?.setTitle(title, for: .normal) }
         } else {
             if shiftButton?.title(for: .normal) != "" { shiftButton?.setTitle("", for: .normal) }

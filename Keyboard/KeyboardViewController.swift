@@ -24,7 +24,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var shifted = false
     private var capsLocked = false
     private var symbols = false
-    private var symbolPage = 0
+    /// 記号画面で括弧キーを押した直後に帯へ出す括弧の変換候補。
+    /// 選ぶと、挿入済みの括弧がその種類へ置き換わる。
+    private var bracketCandidates: [String] = []
     private var revision = 0
     private var conversionReady = false
     private var waitingSpaceCount = 0
@@ -93,7 +95,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
     private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
     private var showsCandidateStrip: Bool {
-        isJapanese ? !composition.isEmpty : (!symbols && !englishSuggestions.isEmpty)
+        !bracketCandidates.isEmpty
+            || (isJapanese ? !composition.isEmpty : (!symbols && !englishSuggestions.isEmpty))
     }
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
@@ -643,7 +646,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let snapshot = settings.snapshot
         overrideUserInterfaceStyle = snapshot.theme == 1 ? .light : snapshot.theme == 2 ? .dark : .unspecified
         view.backgroundColor = traitCollection.userInterfaceStyle == .light ? UIColor(white: 0.82, alpha: 1) : UIColor(white: 0.17, alpha: 1)
-        canvas.configure(snapshot, shifted: shifted, symbols: symbols, symbolPage: symbolPage, japanese: isJapanese)
+        canvas.configure(snapshot, shifted: shifted, symbols: symbols, japanese: isJapanese)
         canvas.setJapaneseMode(isJapanese)
         canvas.updateShift(shifted, caps: capsLocked)
         renderState(updateMarked: false)
@@ -795,6 +798,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 先頭に来るようグリッドをその場で更新する。
         syncHostChange()
         commitCurrent()
+        if !bracketCandidates.isEmpty { bracketCandidates = []; renderState(updateMarked: false) }
         editor.insert(emoji)
         recentEmojiStore.record(emoji)
         pendingAutocorrectUndo = nil
@@ -1001,7 +1005,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let snapshot = LayoutSettings.decode(text) else { return false }
         syncHostChange(); commitCurrent()
         settings.apply(snapshot)
-        shifted = false; capsLocked = false; symbols = false; symbolPage = 0
+        shifted = false; capsLocked = false; symbols = false; bracketCandidates = []
         if isViewLoaded { rebuildCanvas() }
         return true
     }
@@ -1014,6 +1018,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private func insertPhrase(_ phrase: String) {
         syncHostChange(); commitCurrent()
+        if !bracketCandidates.isEmpty { bracketCandidates = []; renderState(updateMarked: false) }
         editor.insert(phrase)
     }
 
@@ -1021,23 +1026,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
         settings.japanese = japanese
-        shifted = false; capsLocked = false; symbols = false; symbolPage = 0
+        shifted = false; capsLocked = false; symbols = false; bracketCandidates = []
         rebuildCanvas()
     }
     private func handle(_ action: KeyboardAction) {
         if action != .delete { pendingAutocorrectUndo = nil }
         syncHostChange()
+        let hadBracketCandidates = !bracketCandidates.isEmpty
+        if action != .delete { bracketCandidates = [] }
         switch action {
         case .shift:
             if symbols { symbols = false; rebuildCanvas() }
             else { shifted.toggle(); capsLocked = false; canvas.updateShift(shifted, caps: false) }
         case .delete: backspace()
         case .symbols:
-            symbols.toggle(); symbolPage = 0; rebuildCanvas()
-        case .symbolPage:
-            guard symbols else { return }
-            symbolPage = symbolPage == 0 ? 1 : 0
-            rebuildCanvas()
+            symbols.toggle(); rebuildCanvas()
         case .space:
             // 長押しで定型文パネルを開いた直後の離しタップは、スペースとして扱わない。
             if isPicking { hidePhrasePicker() }
@@ -1049,9 +1052,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             else { commitCurrent() }
         case .paste: showClipboardPanel()
         }
+        // 括弧候補を消したのに帯が残らないよう、再描画が伴わない
+        // アクションでも帯だけは追随させる。
+        if hadBracketCandidates, bracketCandidates.isEmpty { renderState(updateMarked: false) }
     }
     private func insert(_ text: String) {
         syncHostChange()
+        let hadBracketCandidates = !bracketCandidates.isEmpty
+        bracketCandidates = []
         if !isJapanese, !symbols, composition.isEmpty, text.count == 1, ".?!,".contains(text) {
             autocorrectEnglishWord(delimiter: text)
         }
@@ -1067,9 +1075,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             commitCurrent()
             let committedText = isJapanese && symbols ? japaneseFullWidth(text) : text
             editor.insert(shifted && !isJapanese ? text.uppercased() : committedText)
+            // 括弧キーの直後は別種の括弧への変換候補を帯に出す
+            // ([ ] { } の専用キーは置かず、( ) から変換する設計)。
+            if symbols, let variants = Self.bracketVariants(for: committedText, japanese: isJapanese) {
+                bracketCandidates = variants
+            }
         }
         if shifted && !capsLocked { shifted = false; canvas.updateShift(false, caps: false) }
         if !isJapanese, composition.isEmpty { renderState() }
+        else if hadBracketCandidates || !bracketCandidates.isEmpty { renderState(updateMarked: false) }
+    }
+    /// 括弧の変換候補。開き/閉じと全角/半角で組が決まる。括弧キー
+    /// 以外の入力では nil (候補を出さない)。
+    private static func bracketVariants(for inserted: String, japanese: Bool) -> [String]? {
+        let openers = japanese ? ["（", "［", "｛", "「", "【", "〔"] : ["(", "[", "{"]
+        let closers = japanese ? ["）", "］", "｝", "」", "】", "〕"] : [")", "]", "}"]
+        if openers.contains(inserted) { return openers }
+        if closers.contains(inserted) { return closers }
+        return nil
+    }
+    /// 帯で選ばれた括弧へ、挿入済みの括弧を置き換える。
+    private func applyBracketVariant(_ value: String) {
+        bracketCandidates = []
+        editor.deleteBackward()
+        editor.insert(value)
+        renderState(updateMarked: false)
     }
     private func scheduleConversion() {
         let inputStamp = PerfProbe.stamp()
@@ -1202,7 +1232,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             updateRequestedHeight()
         }
         let stripStamp = PerfProbe.stamp()
-        let stripCount = isJapanese ? candidates.count : englishSuggestions.count
+        let stripCount = !bracketCandidates.isEmpty ? bracketCandidates.count
+            : (isJapanese ? candidates.count : englishSuggestions.count)
         while candidateKeys.count > stripCount {
             let key = candidateKeys.removeLast()
             key.removeFromSuperview()
@@ -1235,6 +1266,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
+            if !bracketCandidates.isEmpty {
+                let value = bracketCandidates[index]
+                if key.renderedValue != value {
+                    key.setTitle(value, for: .normal)
+                    key.accessibilityIdentifier = "candidate." + value
+                    key.renderedValue = value
+                }
+                if key.isSelectedCandidate == true {
+                    key.backgroundColor = .clear
+                    key.isSelectedCandidate = false
+                }
+                key.onSelect = { [weak self] in self?.applyBracketVariant(value) }
+                key.actionRevision = displayedRevision
+                continue
+            }
             guard isJapanese else {
                 let value = englishSuggestions[index]
                 let title = applyingCase(of: currentEnglishWord(), to: value)
@@ -1283,7 +1329,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 候補リストが変わったら候補欄を左端に戻し、必ず左から見せる。
         // （選択ハイライトだけの変化では戻さない。旧 contentOffset の
         // リセット相当。）
-        let stripValues = isJapanese ? candidates : englishSuggestions
+        let stripValues = !bracketCandidates.isEmpty ? bracketCandidates
+            : (isJapanese ? candidates : englishSuggestions)
         if stripValues != lastStripValues {
             lastStripValues = stripValues
             // リストが差し替わったら慣性減速も止める（build 59）。
@@ -1534,6 +1581,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if isViewLoaded { renderState(updateMarked: false) }
     }
     private func backspace() {
+        let hadBracketCandidates = !bracketCandidates.isEmpty
+        bracketCandidates = []
         if composition.isEmpty {
             if undoEnglishAutocorrectIfApplicable() { renderState(); return }
             editor.deleteBackward()
@@ -1541,6 +1590,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         else if selected != nil { selected = nil; renderState() }
         else { composition.deleteBackwardFromCursorPosition(count: 1); scheduleConversion() }
+        if hadBracketCandidates { renderState(updateMarked: false) }
     }
     private func moveCursor(_ offset: Int) {
         syncHostChange()
