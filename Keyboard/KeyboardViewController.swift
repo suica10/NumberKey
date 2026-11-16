@@ -1631,7 +1631,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private func space() {
         guard !composition.isEmpty else {
-            if isJapanese || symbols { editor.insert(" ") } else { englishSpace() }
+            // 日本語モードではスペースも全角（U+3000）にする。記号ページ表示中でも
+            // 日本語モードなら全角。半角スペースは英字モード側の englishSpace() のみ。
+            if isJapanese { editor.insert("　") } else if symbols { editor.insert(" ") } else { englishSpace() }
             return
         }
         guard conversionReady else { waitingSpaceCount += 1; return }
