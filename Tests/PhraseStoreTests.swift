@@ -31,12 +31,29 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertFalse(store.add(""))
         XCTAssertFalse(store.add("   "))
         XCTAssertFalse(store.add(String(repeating: "あ", count: 101)))
-        XCTAssertFalse(store.add("改行\nを含む"))
+        XCTAssertFalse(store.add("タブ\tを含む"))
         for i in 0..<PhraseBook.maxCount {
             XCTAssertTrue(store.add("定型文\(i)"))
         }
         XCTAssertFalse(store.add("21件目"))
         XCTAssertEqual(store.phrases.count, PhraseBook.maxCount)
+    }
+
+    func testNewlinesArePreserved() {
+        let store = PhraseStore(defaults: defaults, legacyPhrases: { [] })
+        XCTAssertTrue(store.add("1行目\n2行目"))
+        // CRLF / CR は \n にそろえられて保存される
+        XCTAssertTrue(store.add("CRLF\r\n混在\rc"))
+        XCTAssertEqual(store.phrases, ["1行目\n2行目", "CRLF\n混在\nc"])
+        // 先頭・末尾の改行は従来どおり取り除かれる
+        XCTAssertTrue(store.add("\n前後\n"))
+        XCTAssertEqual(store.phrases.last, "前後")
+        // 保存・再読み込みでも改行が残る
+        let reloaded = PhraseStore(defaults: defaults)
+        XCTAssertEqual(reloaded.phrases, store.phrases)
+        // 更新でも改行は維持される
+        XCTAssertTrue(store.update(at: 0, "差し替え\n2行目"))
+        XCTAssertEqual(store.phrases.first, "差し替え\n2行目")
     }
 
     func testUpdateAndRemove() {

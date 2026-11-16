@@ -18,9 +18,11 @@ struct PhraseBook: Codable, Equatable {
     static let maxLength = 100
 
     static func isValidPhrase(_ text: String) -> Bool {
+        // 改行 (\n) は定型文の中身として正当なので制御文字から除外する。
+        // それ以外の制御文字（タブ等）は従来どおり不可。
         !text.isEmpty
             && text.count <= maxLength
-            && !text.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            && !text.unicodeScalars.contains(where: { $0 != "\n" && CharacterSet.controlCharacters.contains($0) })
     }
 
     /// 保存前に通す正規化。空文字と不正な文字列を落とし、上限件数で切る。
@@ -128,9 +130,17 @@ final class PhraseStore {
         book = decoded.sanitized
     }
 
+    /// 保存前の正規化。改行コードを \n にそろえ（中の改行は維持する）、
+    /// 前後の空白・改行だけを取り除く。
+    private static func normalize(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     @discardableResult
     func add(_ text: String) -> Bool {
-        let candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = Self.normalize(text)
         guard PhraseBook.isValidPhrase(candidate), book.phrases.count < PhraseBook.maxCount else { return false }
         book.phrases.append(candidate)
         persist()
@@ -140,7 +150,7 @@ final class PhraseStore {
     @discardableResult
     func update(at index: Int, _ text: String) -> Bool {
         guard book.phrases.indices.contains(index) else { return false }
-        let candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = Self.normalize(text)
         guard PhraseBook.isValidPhrase(candidate) else { return false }
         book.phrases[index] = candidate
         persist()

@@ -991,9 +991,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             return
         }
         guard let pasted = UIPasteboard.general.string, !pasted.isEmpty else { return }
+        // 改行は定型文の中身として維持する（改行コードは \n にそろえる）。
+        // 改行以外の制御文字だけ落とす。
+        let lineNormalized = pasted.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var sanitized = ""
-        for scalar in pasted.unicodeScalars {
-            if scalar == "\n" || scalar == "\r" { sanitized.append(" ") }
+        for scalar in lineNormalized.unicodeScalars {
+            if scalar == "\n" { sanitized.append("\n") }
             else if !CharacterSet.controlCharacters.contains(scalar) { sanitized.unicodeScalars.append(scalar) }
         }
         guard !sanitized.isEmpty else { return }
