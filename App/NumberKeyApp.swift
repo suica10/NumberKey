@@ -56,37 +56,8 @@ struct SettingsView: View {
                     }
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
                 }
-                Section("定型文") {
-                    Text("ここに登録した文章は自動保存され、キーボードのスペースキーを長押しすると上からリストで表示されます。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    if !KeyboardSettings.sharedContainerAvailable {
-                        Text("このアプリの署名にApp Group \(KeyboardSettings.appGroupIdentifier) が含まれていません。アプリ本体とキーボード拡張の両方を、このApp Group入りのプロビジョニングプロファイルで署名してください。")
-                            .font(.footnote).foregroundStyle(.red)
-                    }
-                    ForEach(Array(layout.phrases.indices), id: \.self) { index in
-                        HStack(spacing: 10) {
-                            TextField("定型文を入力", text: $layout.phrases[index], axis: .vertical)
-                                .lineLimit(1...3)
-                            Button(role: .destructive) {
-                                layout.phrases.remove(at: index)
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .accessibilityLabel("定型文を削除")
-                        }
-                    }
-                    if layout.phrases.count < 20 {
-                        Button {
-                            layout.phrases.append("")
-                        } label: {
-                            Label("定型文を追加", systemImage: "plus")
-                        }
-                    }
-                    Text("\(layout.phrases.count) / 20")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
                 Section("キーボードへの反映") {
-                    Text("キー配置と定型文は自動保存されます。キーボードを次に開いたときに反映されます。")
+                    Text("キー配置は自動保存されます。キーボードを次に開いたときに反映されます。")
                     Text("入力内容は送信せず、選んだ変換候補を端末内に学習します。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -100,7 +71,6 @@ struct SettingsView: View {
                     Text("「123」の長押し：カーソルを左右に移動")
                     Text("地球儀：日本語／English切り替え（長押しメニューで次のキーボードへ）")
                     Text("シフトを2回タップ：大文字を固定")
-                    Text("スペースを長押し：入力モード選択・定型文入力")
                     Text("リターンを長押し：クリップボードのテキストを貼り付け（フルアクセスが必要）")
                     Text("削除を長押し：連続削除")
                     Text("キーボードの追加：設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 → NumberKey 日本語")

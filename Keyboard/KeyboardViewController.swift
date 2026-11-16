@@ -77,7 +77,6 @@ final class KeyboardViewController: UIInputViewController {
             button.showsMenuAsPrimaryAction = false
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
-        canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
         let height = view.heightAnchor.constraint(equalToConstant: 270)
         height.priority = .init(999); height.isActive = true; heightConstraint = height
@@ -135,30 +134,6 @@ final class KeyboardViewController: UIInputViewController {
         let right = UIAction(title: "カーソルを右へ", image: UIImage(systemName: "arrow.right")) { [weak self] _ in self?.moveCursor(1) }
         button.menu = UIMenu(children: [UIMenu(options: .displayInline, children: [left, right])])
     }
-    private func configureSpaceMenu(_ button: UIButton) {
-        updateSpaceMenu(button)
-        button.addAction(UIAction { [weak self, weak button] _ in
-            guard let self, let button else { return }
-            self.settings = KeyboardSettings()
-            _ = self.settings.defaults.synchronize()
-            self.updateSpaceMenu(button)
-        }, for: .touchDown)
-    }
-    private func updateSpaceMenu(_ button: UIButton) {
-        let japanese = UIAction(title: "日本語入力", state: isJapanese ? .on : .off) { [weak self] _ in self?.setLanguage(true) }
-        let english = UIAction(title: "English", state: isJapanese ? .off : .on) { [weak self] _ in self?.setLanguage(false) }
-        let presetActions = settings.snapshot.phrases.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { phrase in
-            UIAction(title: phrase) { [weak self] _ in self?.insertPhrase(phrase) }
-        }
-        let phrases = presetActions.isEmpty
-            ? [UIAction(title: "アプリで定型文を登録", attributes: .disabled) { _ in }]
-            : presetActions
-        button.menu = UIMenu(children: [
-            UIMenu(options: .displayInline, children: [japanese, english]),
-            UIMenu(options: .displayInline, children: phrases)
-        ])
-        button.showsMenuAsPrimaryAction = false
-    }
     @discardableResult
     func applyLayoutString(_ text: String) -> Bool {
         guard let snapshot = LayoutSettings.decode(text) else { return false }
@@ -175,11 +150,6 @@ final class KeyboardViewController: UIInputViewController {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
-    private func insertPhrase(_ phrase: String) {
-        syncHostChange(); commitCurrent()
-        editor.insert(phrase)
-    }
-
     private func setLanguage(_ japanese: Bool) {
         guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
@@ -225,11 +195,11 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func insert(_ text: String) {
         syncHostChange()
-        let roman = text.count == 1 && text.range(of: "^[a-zA-Z']$", options: .regularExpression) != nil
+        let roman = text.utf8.count == 1 && text.utf8.allSatisfy { (65...90).contains($0) || (97...122).contains($0) || $0 == 39 }
         let isRomanInput = roman && !symbols
-        if isJapanese && (isRomanInput || !composition.isEmpty) {
+        if isJapanese && (isRomanInput || !composition.isEmpty || text == "-") {
             if composition.input.count >= 96 { commitRaw() }
-            let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
+            let inputText = isRomanInput ? text.lowercased() : text == "-" ? "ー" : japaneseFullWidth(text)
             composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
             selected = nil
             scheduleConversion()
@@ -244,7 +214,10 @@ final class KeyboardViewController: UIInputViewController {
         revision += 1
         let requestRevision = revision, snapshot = composition
         conversionReady = false; waitingSpaceCount = 0; selected = nil
-        candidates = baseCandidates()
+        // Keep the previous row visible until the latest result arrives.
+        // Pending candidates are disabled below so stale text cannot be committed.
+        if snapshot.isEmpty { candidates = [] }
+        else if candidates.isEmpty { candidates = baseCandidates() }
         conversionTask?.cancel()
         renderState()
         guard !snapshot.isEmpty else { return }
@@ -261,7 +234,7 @@ final class KeyboardViewController: UIInputViewController {
             self.conversionReady = true
             self.selected = self.waitingSpaceCount > 0 && !self.candidates.isEmpty ? (self.waitingSpaceCount - 1) % self.candidates.count : nil
             self.waitingSpaceCount = 0
-            self.renderState()
+            self.renderState(updateMarked: self.selected != nil)
         }
     }
     private func baseCandidates() -> [String] {
@@ -279,15 +252,17 @@ final class KeyboardViewController: UIInputViewController {
         canvas.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !isJapanese || composition.isEmpty
         if candidateScroll.isHidden != shouldHideCandidates { view.setNeedsLayout() }
-        while candidateKeys.count > candidates.count {
-            let key = candidateKeys.removeLast()
-            candidateStack.removeArrangedSubview(key)
-            key.removeFromSuperview()
+        UIView.performWithoutAnimation {
+            self.renderCandidates()
         }
+    }
+    private func renderCandidates() {
         while candidateKeys.count < candidates.count {
-            let key = CandidateKey(type: .system)
+            let key = CandidateKey(type: .custom)
             key.titleLabel?.font = .systemFont(ofSize: 17)
-            key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
+            let textColor: UIColor = traitCollection.userInterfaceStyle == .light ? .black : .white
+            key.setTitleColor(textColor, for: .normal)
+            key.setTitleColor(textColor, for: .disabled)
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.layer.cornerRadius = 4
             key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
@@ -296,11 +271,22 @@ final class KeyboardViewController: UIInputViewController {
         }
         let isLight = traitCollection.userInterfaceStyle == .light
         if candidateStyleIsLight != isLight {
-            candidateKeys.forEach { $0.setTitleColor(isLight ? .black : .white, for: .normal) }
+            candidateKeys.forEach {
+                $0.setTitleColor(isLight ? .black : .white, for: .normal)
+                $0.setTitleColor(isLight ? .black : .white, for: .disabled)
+            }
             candidateStyleIsLight = isLight
         }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
+            let visible = index < candidates.count
+            if key.isHidden == visible { key.isHidden = !visible }
+            key.isEnabled = visible && conversionReady
+            guard visible else {
+                key.onSelect = nil
+                key.actionRevision = -1
+                continue
+            }
             let value = candidates[index]
             let valueChanged = key.renderedValue != value
             if valueChanged {
@@ -317,7 +303,7 @@ final class KeyboardViewController: UIInputViewController {
                 key.onSelect = { [weak self] in
                     guard let self else { return }
                     self.syncHostChange()
-                    guard self.revision == displayedRevision else { return }
+                    guard self.revision == displayedRevision, self.conversionReady else { return }
                     self.commit(value, learn: true)
                 }
                 key.actionRevision = displayedRevision

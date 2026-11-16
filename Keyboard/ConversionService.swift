@@ -19,6 +19,8 @@ actor ConversionService {
     }
 
     func candidates(for composition: ComposingText) -> [String] {
+        // A cancelled request may have waited behind another conversion on this actor.
+        guard !Task.isCancelled else { return [] }
         guard !composition.isEmpty else { learningCandidates.removeAll(); return [] }
         warmUp()
         guard let converter else { return [] }

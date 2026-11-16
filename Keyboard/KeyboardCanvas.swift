@@ -18,7 +18,6 @@ final class KeyboardCanvas: UIView {
     var onCaps: (() -> Void)?
     var configureGlobe: ((UIButton) -> Void)?
     var configureMenu: ((UIButton) -> Void)?
-    var configureSpaceMenu: ((UIButton) -> Void)?
     private var settings = LayoutSettings.defaults
     private var characterRows: [[KeyboardKey]] = []
     private var values: [[String]] = []
@@ -27,6 +26,7 @@ final class KeyboardCanvas: UIView {
     private var spaceButton: KeyboardKey?
     private var bottom: [KeyboardKey] = []
     private var popup: UILabel?
+    private var composingState: Bool?
     private var shifted = false
     private var symbols = false
     private var symbolPage = 0
@@ -37,7 +37,7 @@ final class KeyboardCanvas: UIView {
         self.settings = settings; self.shifted = shifted
         self.symbols = symbols; self.symbolPage = symbolPage
         subviews.forEach { $0.removeFromSuperview() }
-        popup = nil; characterRows = []; bottom = []
+        popup = nil; composingState = nil; characterRows = []; bottom = []
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
         if symbols {
             let mainSymbols = ["-", "/", ":", ";", "(", ")", "$", "&", "@", String(UnicodeScalar(34)!)]
@@ -92,7 +92,6 @@ final class KeyboardCanvas: UIView {
         globe.accessibilityLabel = "次のキーボード"
         configureGlobe?(globe)
         let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
-        configureSpaceMenu?(space)
         let comma = makeKey(japanese ? "、" : ",") { [weak self] in self?.onText?(japanese ? "、" : ",") }
         comma.accessibilityLabel = japanese ? "読点" : "comma"
         let period = makeKey(japanese ? "。" : ".") { [weak self] in self?.onText?(japanese ? "。" : ".") }
@@ -129,8 +128,13 @@ final class KeyboardCanvas: UIView {
         return key
     }
 
+    private func resolvedKeyHeight(for width: CGFloat) -> CGFloat {
+        let base = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
+        return base + width * 18.5 / 1206
+    }
+
     func preferredHeight(width: CGFloat) -> CGFloat {
-        let height = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
+        let height = resolvedKeyHeight(for: width)
         let rowCount: CGFloat = symbols ? 4 : 5
         return height * rowCount + width * 26 / 1206 * (rowCount - 1) + 7
     }
@@ -141,7 +145,7 @@ final class KeyboardCanvas: UIView {
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
         let verticalGap = width * 26 / 1206
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
-        let keyHeight = settings.keyHeight == 0 ? min(49, max(32, width * 114 / 1206)) : CGFloat(settings.keyHeight)
+        let keyHeight = resolvedKeyHeight(for: width)
         let font = min(26, max(18, width * 66 / 1206))
         let sideWidth = keyWidth * 1.34
         for (rowIndex, row) in characterRows.enumerated() {
@@ -206,13 +210,25 @@ final class KeyboardCanvas: UIView {
         spaceButton?.accessibilityLabel = japanese ? "日本語入力" : "スペース"
     }
     func setComposing(_ composing: Bool) {
+        guard composingState != composing else { return }
+        composingState = composing
         bottom.last?.setTitle(composing ? "確定" : "return", for: .normal)
         bottom.last?.accessibilityLabel = composing ? "確定" : "改行"
     }
     private func showPopup(_ key: UIButton) {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        hidePopup()
-        let label = UILabel()
+        let label: UILabel
+        if let existing = popup {
+            label = existing
+        } else {
+            label = UILabel()
+            label.isUserInteractionEnabled = false
+            label.accessibilityElementsHidden = true
+            addSubview(label)
+            popup = label
+        }
+        label.isHidden = false
+        bringSubviewToFront(label)
         label.text = key.title(for: .normal)
         label.textAlignment = .center
         label.font = .systemFont(ofSize: 32)
@@ -224,9 +240,8 @@ final class KeyboardCanvas: UIView {
                              y: max(0, key.frame.minY - 43), width: key.bounds.width + 18, height: 48)
         label.isUserInteractionEnabled = false
         label.accessibilityElementsHidden = true
-        addSubview(label); popup = label
     }
-    private func hidePopup() { popup?.removeFromSuperview(); popup = nil }
+    private func hidePopup() { popup?.isHidden = true }
     @objc private func doubleShift(_ g: UITapGestureRecognizer) { onCaps?() }
     @objc private func deleteHold(_ g: UILongPressGestureRecognizer) { onDeleteHold?(g) }
     @objc private func returnHold(_ g: UILongPressGestureRecognizer) {
