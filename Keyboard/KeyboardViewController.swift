@@ -353,7 +353,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         phraseAddButton.contentHorizontalAlignment = .left
         phraseAddButton.addAction(UIAction { [weak self] _ in self?.beginCapture() }, for: .touchUpInside)
         phrasePanel.addSubview(phraseAddButton)
-        phraseReorderToggle.setTitle("並び替え", for: .normal)
+        phraseReorderToggle.setTitle("編集・並び替え", for: .normal)
         phraseReorderToggle.titleLabel?.font = .systemFont(ofSize: 16)
         phraseReorderToggle.contentHorizontalAlignment = .right
         phraseReorderToggle.addAction(UIAction { [weak self] _ in
@@ -929,7 +929,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             }
             phraseStack.addArrangedSubview(row)
         }
-        phraseReorderToggle.setTitle(pickerReorderMode ? "並び替え中" : "並び替え", for: .normal)
+        phraseReorderToggle.setTitle(pickerReorderMode ? "編集・並び替え中" : "編集・並び替え", for: .normal)
         phraseReorderToggle.setTitleColor(pickerReorderMode ? .systemBlue : nil, for: .normal)
     }
     /// 旧実装（共有 LayoutSettings）から定型文を一度だけ引き継ぐための読み出し。
