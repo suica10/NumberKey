@@ -134,6 +134,7 @@ targets:
           NSExtensionAttributes:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURL: true
 schemes:
   NumberKey:
     build:

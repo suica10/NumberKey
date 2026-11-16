@@ -45,8 +45,13 @@ final class ShareViewController: UIViewController {
 
     private func collectSharedText() {
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+        // テキスト共有に加え、Safari 等の Web ページ共有 (URL) でも
+        // アクションに出るよう、URL のみのプロバイダも受け付ける。
         let providers = items.flatMap { $0.attachments ?? [] }
-            .filter { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }
+            .filter {
+                $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+                    || $0.hasItemConformingToTypeIdentifier(UTType.url.identifier)
+            }
         guard !providers.isEmpty else {
             statusLabel.text = "テキストが見つかりませんでした"
             return
@@ -56,7 +61,9 @@ final class ShareViewController: UIViewController {
         var texts: [String] = []
         for provider in providers {
             group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { value, _ in
+            let typeID = provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+                ? UTType.plainText.identifier : UTType.url.identifier
+            provider.loadItem(forTypeIdentifier: typeID, options: nil) { value, _ in
                 defer { group.leave() }
                 var text: String?
                 switch value {
