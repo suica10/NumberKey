@@ -166,13 +166,14 @@ struct SettingsView: View {
 struct SetupGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var activated = KeyboardSettings.lastActivatedAt != nil
+    @State private var testText = ""
 
     private let steps = [
         "設定アプリを開きます。",
         "「一般」→「キーボード」→「キーボード」の順にタップします。",
         "「新しいキーボードを追加…」から One Keyboard を選びます。",
         "追加された One Keyboard をタップし、「フルアクセスを許可」をオンにします。",
-        "メモアプリなどでキーボードを切り替えて、One Keyboard が出れば完了です。"
+        "この画面の一番下にあるテスト入力でキーボードを切り替えて、One Keyboard が出れば完了です。"
     ]
 
     var body: some View {
@@ -203,6 +204,12 @@ struct SetupGuideView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                         Button("再確認") { activated = KeyboardSettings.lastActivatedAt != nil }
                     }
+                }
+                Section("テスト入力") {
+                    TextEditor(text: $testText)
+                        .frame(height: 90)
+                    Text("ここをタップするとキーボードが開きます。地球儀キーで One Keyboard に切り替えて、そのまま入力を試せます。外部のアプリを開く必要はありません。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("セットアップ")
