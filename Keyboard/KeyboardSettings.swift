@@ -10,6 +10,16 @@ func japaneseFullWidth(_ text: String) -> String {
     }))
 }
 
+/// 全角→半角 (japaneseFullWidth の逆)。対象外の文字は nil。
+func halfWidthForm(_ text: String) -> String? {
+    guard text.count == 1, let scalar = text.unicodeScalars.first else { return nil }
+    switch scalar.value {
+    case 0xFF01...0xFF5E: return String(UnicodeScalar(scalar.value - 0xFEE0)!)
+    case 0xFFE5: return "¥"
+    default: return nil
+    }
+}
+
 struct LayoutSettings: Codable, Equatable {
     var version = 1
     /// キー配列は固定 (入れ替え機能は 0.3.27 で廃止)。旧設定に残る rows は

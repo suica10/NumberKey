@@ -1138,9 +1138,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             commitCurrent()
             let committedText = isJapanese && symbols ? japaneseFullWidth(text) : text
             editor.insert(shifted && !isJapanese ? text.uppercased() : committedText)
-            // 括弧キーの直後は別種の括弧への変換候補を帯に出す
-            // ([ ] { } の専用キーは置かず、( ) から変換する設計)。
-            if symbols, let variants = Self.bracketVariants(for: committedText, japanese: isJapanese) {
+            // 記号モードの入力は全て変換対象: 直後に変換候補を帯に出す
+            // (括弧は括弧組、それ以外は全角/半角ペアと関連記号)。
+            if symbols, let variants = Self.symbolVariants(for: committedText, japanese: isJapanese) {
                 bracketCandidates = variants
             }
         }
@@ -1148,6 +1148,33 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if !isJapanese, composition.isEmpty { renderState() }
         else if hadBracketCandidates || !bracketCandidates.isEmpty { renderState(updateMarked: false) }
     }
+    /// 記号モードの変換候補。括弧は括弧組、それ以外は全角/半角ペアと
+    /// 関連記号。候補のない記号では nil。
+    private static func symbolVariants(for inserted: String, japanese: Bool) -> [String]? {
+        if let brackets = bracketVariants(for: inserted, japanese: japanese) { return brackets }
+        guard inserted.count == 1 else { return nil }
+        var out = [inserted]
+        let half = halfWidthForm(inserted)
+        for v in [half, japaneseFullWidth(inserted)] {
+            if let v, v != inserted, !out.contains(v) { out.append(v) }
+        }
+        let base = half ?? inserted
+        for v in relatedSymbols[base] ?? relatedSymbols[inserted] ?? [] {
+            if !out.contains(v) { out.append(v) }
+        }
+        return out.count > 1 ? out : nil
+    }
+    private static let relatedSymbols: [String: [String]] = [
+        ".": ["。", "．", "・"],
+        ",": ["、", "，"],
+        "-": ["ー", "―", "–", "‐"],
+        "'": ["‘", "’"],
+        "\"": ["“", "”"],
+        "<": ["〈", "《"],
+        ">": ["〉", "》"],
+        "~": ["〜", "～"],
+        "〜": ["～", "~"],
+    ]
     /// 括弧の変換候補。開き/閉じと全角/半角で組が決まる。括弧キー
     /// 以外の入力では nil (候補を出さない)。
     private static func bracketVariants(for inserted: String, japanese: Bool) -> [String]? {
