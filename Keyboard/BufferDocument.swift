@@ -9,8 +9,8 @@ import Foundation
 @MainActor
 final class BufferDocument: KeyboardDocument {
     private(set) var buffer = TextBuffer()
-    /// 表示更新（候補ストリップのラベル）用。displayText が変わるたびに呼ばれる。
-    var onChange: ((String) -> Void)?
+    /// 表示更新用。displayText と表示カーソル位置（文字オフセット）が変わるたびに呼ばれる。
+    var onChange: ((String, Int) -> Void)?
 
     var text: String { buffer.finalText() }
 
@@ -19,26 +19,40 @@ final class BufferDocument: KeyboardDocument {
     var before: String? { buffer.displayText }
     var after: String? { "" }
 
+    private func notify() {
+        onChange?(buffer.displayText, buffer.displayCursorOffset)
+    }
+
+    /// 既存の定型文を編集するために、初期テキストを読み込む。
+    func loadInitialText(_ text: String) {
+        buffer.load(text)
+        notify()
+    }
+
     func setMarkedText(_ text: String, selectedRange: NSRange) {
         buffer.setMarked(text)
-        onChange?(buffer.displayText)
+        notify()
     }
 
     func unmarkText() {
         buffer.unmark()
-        onChange?(buffer.displayText)
+        notify()
     }
 
     func insertText(_ text: String) {
         buffer.insert(text)
-        onChange?(buffer.displayText)
+        notify()
     }
 
     func deleteBackward() {
         buffer.deleteBackward()
-        onChange?(buffer.displayText)
+        notify()
     }
 
-    /// バッファ内のカーソル移動は未対応（登録中の編集は末尾への追記と削除のみ）。
-    func move(_ offset: Int) {}
+    /// バッファ内のカーソル移動。TextBuffer が確定済みテキスト内の位置を持つので、
+    /// 登録・編集中も既存のカーソル移動メニューがそのまま効く。
+    func move(_ offset: Int) {
+        buffer.moveCursor(offset)
+        notify()
+    }
 }

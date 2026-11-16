@@ -100,6 +100,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
+    /// 編集中の定型文の位置（新規登録なら nil）。
+    private var captureEditingIndex: Int?
+    private var captureText = ""
+    private var captureCursorOffset = 0
+    private var captureCursorVisible = true
+    private var captureBlinkTimer: Timer?
     private let capturePanel = UIView()
     private let captureTitle = UILabel()
     private let captureDisplay = UILabel()
@@ -884,13 +890,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if phrases.isEmpty {
             phraseStack.addArrangedSubview(panelNoteView("定型文はまだありません"))
         }
+        if pickerReorderMode && !phrases.isEmpty {
+            phraseStack.addArrangedSubview(panelNoteView("タップで編集できます"))
+        }
         for (index, phrase) in phrases.enumerated() {
             let row = PhraseRowView(phrase: phrase, isLight: isLight, reorderMode: pickerReorderMode,
                                     isFirst: index == 0, isLast: index == phrases.count - 1)
             row.onTap = { [weak self] in
-                guard let self, !self.pickerReorderMode else { return }
-                self.hidePhrasePicker()
-                self.insertPhrase(phrase)
+                guard let self else { return }
+                if self.pickerReorderMode {
+                    self.beginCapture(editingIndex: index, initialText: phrase)
+                } else {
+                    self.hidePhrasePicker()
+                    self.insertPhrase(phrase)
+                }
             }
             row.onDelete = { [weak self] in
                 self?.phraseStore.remove(at: index)
@@ -932,48 +945,94 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         return nil
     }
-    private func beginCapture() {
+    private func beginCapture(editingIndex: Int? = nil, initialText: String = "") {
         guard !isCapturing else { return }
         buildPanelsIfNeeded()
         hidePhrasePicker()
         hideClipboardPanel()
         syncHostChange(); commitCurrent()
+        captureEditingIndex = editingIndex
+        captureTitle.text = editingIndex != nil ? "定型文を編集" : "定型文を登録"
         let document = BufferDocument()
-        document.onChange = { [weak self] text in
+        document.onChange = { [weak self] text, cursorOffset in
             guard let self else { return }
-            self.captureDisplay.text = text.isEmpty ? "ここに定型文を入力" : text
-            self.captureDisplay.textColor = text.isEmpty ? .placeholderText
-                : (self.traitCollection.userInterfaceStyle == .light ? .black : .white)
+            self.captureText = text
+            self.captureCursorOffset = cursorOffset
+            self.renderCaptureDisplay()
         }
         captureDocument = document
         documentOverride = document
-        captureDisplay.text = "ここに定型文を入力"
-        captureDisplay.textColor = .placeholderText
+        captureText = ""
+        captureCursorOffset = 0
+        captureCursorVisible = true
+        if !initialText.isEmpty { document.loadInitialText(initialText) }
+        renderCaptureDisplay()
+        captureBlinkTimer?.invalidate()
+        captureBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isCapturing else { return }
+                self.captureCursorVisible.toggle()
+                self.renderCaptureDisplay()
+            }
+        }
         updateCaptureStrip()
         view.setNeedsLayout()
     }
+    /// 登録・編集パネルの表示。ラベルにはシステムのカーソルが付かないので、
+    /// 現在位置に「|」を差し込んで点滅させる（色を消すだけなので幅は動かない）。
+    private func renderCaptureDisplay() {
+        let font = captureDisplay.font ?? .systemFont(ofSize: 20)
+        let baseColor: UIColor = traitCollection.userInterfaceStyle == .light ? .black : .white
+        let cursorColor: UIColor = captureCursorVisible ? .systemBlue : .clear
+        if captureText.isEmpty {
+            let attr = NSMutableAttributedString(string: "|", attributes: [.font: font, .foregroundColor: cursorColor])
+            attr.append(NSAttributedString(string: "ここに定型文を入力", attributes: [.font: font, .foregroundColor: UIColor.placeholderText]))
+            captureDisplay.attributedText = attr
+            return
+        }
+        let offset = min(max(captureCursorOffset, 0), captureText.count)
+        var display = captureText
+        let idx = display.index(display.startIndex, offsetBy: offset)
+        let utf16Offset = display.utf16.distance(from: display.utf16.startIndex, to: idx.samePosition(in: display.utf16)!)
+        display.insert("|", at: idx)
+        let attr = NSMutableAttributedString(string: display, attributes: [.font: font, .foregroundColor: baseColor])
+        attr.addAttribute(.foregroundColor, value: cursorColor, range: NSRange(location: utf16Offset, length: 1))
+        captureDisplay.attributedText = attr
+    }
     private func endCapture(save: Bool) {
         guard let document = captureDocument else { return }
+        let editingIndex = captureEditingIndex
         if save {
             commitCurrent()
             let text = document.text
-            if !phraseStore.add(text) {
-                let truncated = String(text.prefix(PhraseBook.maxLength))
-                if truncated != text, phraseStore.add(truncated) {
-                    let alert = UIAlertController(title: "定型文を保存しました",
-                                                  message: "100文字を超えたため、先頭100文字で保存しました。",
-                                                  preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    present(alert, animated: true)
+            let truncated = String(text.prefix(PhraseBook.maxLength))
+            if let editingIndex {
+                if !phraseStore.update(at: editingIndex, text), truncated != text,
+                   phraseStore.update(at: editingIndex, truncated) {
+                    presentTruncationAlert()
                 }
+            } else if !phraseStore.add(text), truncated != text, phraseStore.add(truncated) {
+                presentTruncationAlert()
             }
         } else {
             resetComposition()
         }
         captureDocument = nil
         documentOverride = nil
+        captureEditingIndex = nil
+        captureBlinkTimer?.invalidate()
+        captureBlinkTimer = nil
         updateCaptureStrip()
         view.setNeedsLayout()
+        // 編集後は一覧へ戻して、書き換わった結果を見せる。
+        if editingIndex != nil { showPhrasePicker() }
+    }
+    private func presentTruncationAlert() {
+        let alert = UIAlertController(title: "定型文を保存しました",
+                                      message: "100文字を超えたため、先頭100文字で保存しました。",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     private func updateCaptureStrip() {
         capturePanel.isHidden = !isCapturing

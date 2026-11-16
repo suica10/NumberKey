@@ -166,6 +166,31 @@ final class PhraseStoreTests: XCTestCase {
         XCTAssertEqual(shared.stringArray(forKey: ClipboardHistoryStore.storageKey), ["new"])
     }
 
+    func testTextBufferCursorEditing() {
+        var buffer = TextBuffer()
+        buffer.load("あいうえお")
+        XCTAssertEqual(buffer.displayCursorOffset, 5)
+        buffer.moveCursor(-2)
+        XCTAssertEqual(buffer.displayCursorOffset, 3)
+        buffer.insert("X")
+        XCTAssertEqual(buffer.displayText, "あいうXえお")
+        buffer.deleteBackward()
+        XCTAssertEqual(buffer.displayText, "あいうえお")
+        XCTAssertEqual(buffer.displayCursorOffset, 3)
+        // 先頭より前へは出ない。先頭での削除も何もしない
+        buffer.moveCursor(-10)
+        XCTAssertEqual(buffer.displayCursorOffset, 0)
+        buffer.deleteBackward()
+        XCTAssertEqual(buffer.displayText, "あいうえお")
+        // 未確定テキストはカーソル位置に表示され、確定するとそこへ畳まれる
+        buffer.moveCursor(1)
+        buffer.setMarked("か")
+        XCTAssertEqual(buffer.displayText, "あかいうえお")
+        buffer.unmark()
+        XCTAssertEqual(buffer.finalText(), "あかいうえお")
+        XCTAssertEqual(buffer.displayCursorOffset, 2)
+    }
+
     func testTextBufferMarkedFlow() {
         var buffer = TextBuffer()
         buffer.setMarked("にほんご")

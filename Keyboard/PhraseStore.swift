@@ -40,31 +40,64 @@ struct PhraseBook: Codable, Equatable {
 struct TextBuffer: Equatable {
     private(set) var committed = ""
     private(set) var marked = ""
+    /// committed 内のカーソル位置（文字数）。挿入・削除・未確定テキストは
+    /// すべてこの位置を基点にする（従来は末尾固定だった）。
+    private(set) var cursor = 0
 
-    /// 画面表示用（確定済み＋未確定）。
-    var displayText: String { committed + marked }
+    /// 画面表示用。未確定テキストはカーソル位置に差し込んで表示する。
+    var displayText: String {
+        let idx = committed.index(committed.startIndex, offsetBy: cursor)
+        return String(committed[..<idx]) + marked + String(committed[idx...])
+    }
+    /// 表示上のカーソル位置（displayText 内の文字オフセット）。
+    /// 未確定テキストはカーソル位置にあるので、その末尾がカーソルになる。
+    var displayCursorOffset: Int { cursor + marked.count }
     var isEmpty: Bool { committed.isEmpty && marked.isEmpty }
+
+    /// 既存テキストで初期化する（定型文の編集用）。カーソルは末尾。
+    mutating func load(_ text: String) {
+        committed = text
+        marked = ""
+        cursor = text.count
+    }
 
     mutating func setMarked(_ text: String) { marked = text }
 
-    /// 未確定文字列を確定側へ畳む（unmarkText の意味）。
+    /// 未確定文字列をカーソル位置へ畳む（unmarkText の意味）。
     mutating func unmark() {
-        committed += marked
+        insertIntoCommitted(marked)
         marked = ""
     }
 
     mutating func insert(_ text: String) {
         if !marked.isEmpty { unmark() }
-        committed += text
+        insertIntoCommitted(text)
+    }
+
+    private mutating func insertIntoCommitted(_ text: String) {
+        let idx = committed.index(committed.startIndex, offsetBy: cursor)
+        committed.insert(contentsOf: text, at: idx)
+        cursor += text.count
     }
 
     mutating func deleteBackward() {
         if !marked.isEmpty { marked.removeLast() }
-        else if !committed.isEmpty { committed.removeLast() }
+        else if cursor > 0 {
+            let idx = committed.index(committed.startIndex, offsetBy: cursor - 1)
+            committed.remove(at: idx)
+            cursor -= 1
+        }
+    }
+
+    /// カーソルを前後に動かす。範囲外には出ない。
+    /// 未確定テキストがある間の移動は変換側のカーソルが担当するので、
+    /// ここは確定済みテキスト内だけを動く。
+    mutating func moveCursor(_ offset: Int) {
+        cursor = min(max(cursor + offset, 0), committed.count)
     }
 
     /// 保存用に未確定を畳んだ最終文字列。
-    func finalText() -> String { committed + marked }
+    func finalText() -> String { displayText }
 }
 
 // MARK: - PhraseStore
