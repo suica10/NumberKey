@@ -16,6 +16,12 @@ target = '''  KeyboardLifecycleTests:
         PRODUCT_BUNDLE_IDENTIFIER: jp.suica10.NumberKey.LifecycleTests
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ''
+        # Same requirement as NumberKeyKeyboard in project.yml: this target
+        # compiles the Keyboard sources and imports the converter, whose
+        # chain ends in SwiftyMarisa's C++-only marisa_trie module. Without
+        # C++ interoperability the Swift frontend parses its headers as C
+        # and fails on 'namespace'.
+        SWIFT_OBJC_INTEROP_MODE: objcxx
     dependencies:
       - target: NumberKey
       - package: Converter
