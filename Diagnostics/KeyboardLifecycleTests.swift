@@ -121,7 +121,10 @@ final class KeyboardLifecycleTests: XCTestCase {
         controller.textDidChange(nil)
         XCTAssertEqual(document.text as String, "かな")
         XCTAssertNotNil(document.marked)
-        try waitForKey("candidate.カナ", controller).sendActions(for: .touchUpInside)
+        // CI シミュレータでは初回変換の辞書ロード (LOUDS の mmap/ページイン)
+        // が数十秒かかることがあるため、候補待ちは長めに取る。本番は
+        // キーボード表示時に warmUp 済みで、この遅延はテスト環境固有。
+        try waitForKey("candidate.カナ", controller, timeout: 90).sendActions(for: .touchUpInside)
         XCTAssertEqual(document.text as String, "カナ")
         XCTAssertNil(document.marked)
     }
