@@ -32,13 +32,27 @@ jobs:
       - name: Select iPhone simulator
         run: |
           python3 - <<'PY'
-          import json, subprocess, os
-          devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
-          candidates=[d for runtime,items in devices.items() if '.iOS-' in runtime for d in items if d['isAvailable'] and 'iPhone' in d['name']]
-          device=candidates[0]
+          import re, subprocess, os, sys
+          # Pick from the destinations xcodebuild itself offers for this scheme:
+          # simctl can list devices (older runtimes) that xcodebuild then refuses
+          # with "Unable to find a device matching the provided destination".
+          out = subprocess.run(['xcodebuild','-showdestinations','-project','NumberKey.xcodeproj','-scheme','KeyboardStartup'],
+                               capture_output=True, text=True).stdout
+          entries = []
+          for line in out.splitlines():
+              m = re.search(r'platform:iOS Simulator.*id:([0-9A-Fa-f-]{36}).*OS:([0-9.]+).*name:([^,}]+)', line)
+              if m and 'iPhone' in m.group(3):
+                  ver = tuple(int(x) for x in m.group(2).split('.'))
+                  entries.append((ver, m.group(3).strip(), m.group(1)))
+          if not entries:
+              print('No iPhone destination offered by xcodebuild', file=sys.stderr)
+              print(out)
+              sys.exit(1)
+          entries.sort(reverse=True)
+          ver, name, udid = entries[0]
           with open(os.environ['GITHUB_ENV'],'a') as f:
-              f.write('SIMULATOR_ID='+device['udid']+'\n')
-          print(device)
+              f.write('SIMULATOR_ID='+udid+'\n')
+          print({'name': name, 'os': '.'.join(map(str, ver)), 'udid': udid})
           PY
       - name: Test keyboard view lifecycle
         shell: bash
