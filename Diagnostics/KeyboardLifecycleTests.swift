@@ -53,6 +53,13 @@ final class KeyboardLifecycleTests: XCTestCase {
     private func key(_ id: String, _ controller: KeyboardViewController) throws -> UIButton {
         try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == id || $0.accessibilityLabel == id })
     }
+    /// 文字キーは touchDown で確定する設計 (KeyboardCanvas)。touchUpInside を
+    /// 送っても発火しないので、文字キーのタップは touchDown で送る。
+    /// 候補選択や削除キーは従来どおり touchUpInside。
+    @MainActor
+    private func tapCharacter(_ id: String, _ controller: KeyboardViewController) throws {
+        try key(id, controller).sendActions(for: .touchDown)
+    }
     /// 変換候補のように非同期で現れるキーを待つ。変換はデバウンス+actor の
     /// 非同期処理なので、テスト側で主ランループを回して完了を待つ必要がある。
     @MainActor
@@ -110,7 +117,7 @@ final class KeyboardLifecycleTests: XCTestCase {
     func testJapaneseIsMarkedInHostAndCommitsWithoutDuplication() throws {
         let (controller, document) = keyboard()
         document.onWrite = { [weak controller] in controller?.textDidChange(nil) }
-        for letter in ["k", "a", "n", "a"] { try key(letter, controller).sendActions(for: .touchUpInside) }
+        for letter in ["k", "a", "n", "a"] { try tapCharacter(letter, controller) }
         controller.textDidChange(nil)
         XCTAssertEqual(document.text as String, "かな")
         XCTAssertNotNil(document.marked)
@@ -122,8 +129,8 @@ final class KeyboardLifecycleTests: XCTestCase {
     func testDeletingCompositionPreservesExistingHostText() throws {
         let (controller, document) = keyboard()
         document.insertText("ABC")
-        try key("k", controller).sendActions(for: .touchUpInside)
-        try key("a", controller).sendActions(for: .touchUpInside)
+        try tapCharacter("k", controller)
+        try tapCharacter("a", controller)
         XCTAssertEqual(document.text as String, "ABCか")
         try key("削除", controller).sendActions(for: .touchUpInside)
         XCTAssertEqual(document.text as String, "ABC")
@@ -132,13 +139,13 @@ final class KeyboardLifecycleTests: XCTestCase {
     @MainActor
     func testExternalCursorChangeDoesNotOverwriteHostText() throws {
         let (controller, document) = keyboard()
-        try key("k", controller).sendActions(for: .touchUpInside)
-        try key("a", controller).sendActions(for: .touchUpInside)
+        try tapCharacter("k", controller)
+        try tapCharacter("a", controller)
         document.unmarkText()
         document.insertText("X")
         controller.textDidChange(nil)
-        try key("s", controller).sendActions(for: .touchUpInside)
-        try key("a", controller).sendActions(for: .touchUpInside)
+        try tapCharacter("s", controller)
+        try tapCharacter("a", controller)
         XCTAssertEqual(document.text as String, "かXさ")
     }
 }

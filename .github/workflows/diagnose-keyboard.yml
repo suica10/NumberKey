@@ -26,9 +26,17 @@ jobs:
         run: bash scripts/bootstrap.sh
       - name: Generate simulator test project
         run: |
-          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          # Same requirement as the TestFlight workflow: XcodeGen >= 2.46.0
+          # writes the SwiftPM trait selection (Zenzai/ZenzaiCPU) into the
+          # generated project. An older preinstalled copy silently drops it
+          # and the converter links llama.cpp mock stubs instead of the real
+          # inference engine, so the tests would exercise a crippled build.
+          brew upgrade xcodegen || brew install xcodegen
+          xcodegen --version
           python3 Diagnostics/configure_project.py
           xcodegen generate
+          grep -q 'Zenzai' NumberKey.xcodeproj/project.pbxproj
+          grep -q 'ZenzaiCPU' NumberKey.xcodeproj/project.pbxproj
       - name: Select iPhone simulator
         run: |
           python3 - <<'PY'
