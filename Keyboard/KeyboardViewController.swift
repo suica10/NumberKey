@@ -1134,8 +1134,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let isRomanInput = roman && !symbols
         if isJapanese && (isRomanInput || !composition.isEmpty) {
             if composition.input.count >= 96 { commitRaw() }
-            let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
-            composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
+            if text == "-", !symbols {
+                // 「-」キーは長音符として組成に入れる。全角ハイフン (U+FF0D)
+                // で入れると読みが「ら－めん」になり辞書引きが外れて、
+                // ラーメン等のカタカナ語が一切変換できなくなる。
+                // ローマ字テーブルには「-」→「ー」の対応が無いため、
+                // キーボード側で直接入れる (長押し候補の先頭も「ー」)。
+                composition.insertAtCursorPosition("ー", inputStyle: .direct)
+            } else {
+                let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
+                composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
+            }
             selected = nil
             scheduleConversion()
         } else {
