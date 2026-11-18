@@ -75,7 +75,7 @@ final class SelectionHistoryTests: XCTestCase {
         store.record(reading: "ていじ", choice: "定時")
         let merged = DictionaryPackLibrary.mergingPacks(
             into: ["提示", "定時"], pinned: ["SNS表記"], appended: ["末尾表記"])
-        XCTAssertEqual(merged, ["SNS表記", "提示", "定時", "末尾表記"])
+        XCTAssertEqual(merged, ["SNS表記", "提示", "末尾表記", "定時"])
         let final = SelectionHistoryStore.applyingHistory(store.choices(for: "ていじ"), to: merged)
         XCTAssertEqual(final, ["定時", "SNS表記", "提示", "末尾表記"])
     }

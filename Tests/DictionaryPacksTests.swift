@@ -149,12 +149,36 @@ final class DictionaryPacksTests: XCTestCase {
     }
 
     func testMergingPacksPinsSNSToHead() {
-        // 本体候補に SNS 表記が混ざっていても先頭へ寄せ、他のパックは末尾。
+        // 本体候補に SNS 表記が混ざっていても先頭へ寄せ、他のパックは
+        // 先頭候補の直後に入る。
         let merged = DictionaryPackLibrary.mergingPacks(
             into: ["変換A", "リプ", "変換B"],
             pinned: ["リプ", "リプ欄"],
             appended: ["面取り"])
-        XCTAssertEqual(merged, ["リプ", "リプ欄", "変換A", "変換B", "面取り"])
+        XCTAssertEqual(merged, ["リプ", "リプ欄", "変換A", "面取り", "変換B"])
+    }
+
+    func testMergingPacksPromotesAppendedBehindTopCandidate() {
+        // 実例 (2026-11-18 実機報告): とよた の候補で会社名パックの
+        // トヨタ自動車 が変換ノイズの後ろ (5番手) に埋もれた。
+        // パック表記は先頭候補の直後 (2番手) に来ること。
+        let merged = DictionaryPackLibrary.mergingPacks(
+            into: ["預た", "toyota", "杜預他", "とよた"],
+            pinned: [], appended: ["トヨタ自動車"])
+        XCTAssertEqual(merged, ["預た", "トヨタ自動車", "toyota", "杜預他", "とよた"])
+    }
+
+    func testMergingPacksPullsUpExistingCandidate() {
+        // パック表記が本体候補の下位にあっても差し込み位置へ引き上げる。
+        let merged = DictionaryPackLibrary.mergingPacks(
+            into: ["変換A", "変換B", "トヨタ自動車"], pinned: [], appended: ["トヨタ自動車"])
+        XCTAssertEqual(merged, ["変換A", "トヨタ自動車", "変換B"])
+    }
+
+    func testMergingPacksAppendedWithEmptyCandidates() {
+        let merged = DictionaryPackLibrary.mergingPacks(
+            into: [], pinned: [], appended: ["面取り"])
+        XCTAssertEqual(merged, ["面取り"])
     }
 
     // MARK: - 会社名パック (同梱 TSV の実データ検証)
@@ -184,8 +208,10 @@ final class DictionaryPacksTests: XCTestCase {
     }
 
     func testMergingPacksDedupesAppendedAgainstCandidates() {
+        // 先頭候補と重なるパック表記はそのまま先頭に残り、残りのパック
+        // 表記はその直後に入る (重複は作らない)。
         let merged = DictionaryPackLibrary.mergingPacks(
             into: ["面取り", "変換A"], pinned: [], appended: ["面取り", "ネジ"])
-        XCTAssertEqual(merged, ["面取り", "変換A", "ネジ"])
+        XCTAssertEqual(merged, ["面取り", "ネジ", "変換A"])
     }
 }

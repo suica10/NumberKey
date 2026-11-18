@@ -195,7 +195,7 @@ final class DictionaryPackLibrary {
     }
 
     /// SNS 以外の有効なパックから、かな読みに完全一致する表記をパック順に
-    /// 集める (候補列の末尾追加用)。
+    /// 集める (候補列の先頭候補直後への差し込み用)。
     func appendedSurfaces(forKana kana: String, store: DictionaryPackStore) -> [String] {
         guard !kana.isEmpty else { return [] }
         var result: [String] = []
@@ -209,14 +209,31 @@ final class DictionaryPackLibrary {
 
     /// 本体の候補列にパック候補を統合する。SNS (pinned) は先頭に固定し、
     /// 本体側に同じ表記があっても先頭へ寄せる。SNS 以外 (appended) は
-    /// 末尾に足す。重複は先勝ち。この統合は変換・リランク・タイポ補正の
-    /// 後段でだけ行うので、SNS が並び替えで後ろに送られることはない。
+    /// 先頭候補の直後に差し込む。パックはユーザーが明示的に有効化した
+    /// 専用語彙で、読みが完全一致した時点で意図はほぼ確定しているため、
+    /// 末尾に足すと変換器のノイズ候補の後ろに埋もれて実質使えない
+    /// (2026-11-18 実機報告: とよた→トヨタ自動車 が5番手)。
+    /// 先頭そのものは変換器の最良候補に譲る (英単語候補の2番手差し込みと
+    /// 同じ流儀)。パック表記が本体候補の下位にあれば引き上げる。
+    /// 重複は作らない。この統合は変換・リランクの後段でだけ行うので、
+    /// SNS が並び替えで後ろに送られることはない。
     static func mergingPacks(into candidates: [String], pinned: [String], appended: [String]) -> [String] {
         var result: [String] = []
         for surface in pinned where !result.contains(surface) { result.append(surface) }
-        for surface in candidates where !result.contains(surface) { result.append(surface) }
-        for surface in appended where !result.contains(surface) { result.append(surface) }
-        return result
+        var rest: [String] = []
+        for surface in candidates where !result.contains(surface) && !rest.contains(surface) {
+            rest.append(surface)
+        }
+        guard let head = rest.first else {
+            for surface in appended where !result.contains(surface) { result.append(surface) }
+            return result
+        }
+        var zone: [String] = []
+        for surface in appended where surface != head && !result.contains(surface) && !zone.contains(surface) {
+            zone.append(surface)
+        }
+        let tail = Array(rest.dropFirst()).filter { !zone.contains($0) }
+        return result + [head] + zone + tail
     }
 
     /// 有効な全パックから、英字入力へのパターン補完をパック順に集める。
