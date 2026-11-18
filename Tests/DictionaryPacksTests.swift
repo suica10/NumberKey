@@ -39,6 +39,7 @@ final class DictionaryPacksTests: XCTestCase {
         XCTAssertTrue(store.isEnabled(.industrial))
         XCTAssertTrue(store.isEnabled(.sns))
         XCTAssertFalse(store.isEnabled(.anime))
+        XCTAssertFalse(store.isEnabled(.company))
         XCTAssertFalse(store.isEnabled(.oshikatsuCommon))
         XCTAssertFalse(store.isEnabled(.oshikatsuMale))
         XCTAssertFalse(store.isEnabled(.oshikatsuFemale))
@@ -154,6 +155,32 @@ final class DictionaryPacksTests: XCTestCase {
             pinned: ["リプ", "リプ欄"],
             appended: ["面取り"])
         XCTAssertEqual(merged, ["リプ", "リプ欄", "変換A", "変換B", "面取り"])
+    }
+
+    // MARK: - 会社名パック (同梱 TSV の実データ検証)
+
+    func testCompanyPackBundledData() throws {
+        XCTAssertEqual(DictionaryPackID.company.displayName, "会社名")
+        XCTAssertEqual(DictionaryPackID.company.resourceName, "dictionary_company")
+        XCTAssertFalse(DictionaryPackID.company.defaultEnabled)
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../Keyboard/dictionary_company.tsv")
+        let data = try Data(contentsOf: url)
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        // 全行が 読み<TAB>表記 で、読みはひらがなのみ (英字読みはパターン扱いに
+        // なるため、会社名パックでは混ぜない)。
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            XCTAssertEqual(parts.count, 2, "TSV 形式でない行: \(line)")
+            XCTAssertTrue(parts[0].allSatisfy { !$0.isASCII }, "読みがひらがなでない: \(line)")
+        }
+        let pack = DictionaryPackData.parse(data)
+        XCTAssertEqual(pack.surfaces(forKana: "とよた"), ["トヨタ自動車"])
+        XCTAssertEqual(pack.surfaces(forKana: "そにー"), ["ソニーグループ"])
+        XCTAssertEqual(pack.surfaces(forKana: "にっさん"), ["日産自動車"])
+        // 日経225 全銘柄 + 主要な非上場・エクストラを収録する規模であること。
+        XCTAssertGreaterThanOrEqual(text.split(separator: "\n").count, 250)
     }
 
     func testMergingPacksDedupesAppendedAgainstCandidates() {

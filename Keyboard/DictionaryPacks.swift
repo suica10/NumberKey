@@ -21,6 +21,7 @@ enum DictionaryPackID: String, CaseIterable {
     case industrial
     case sns
     case anime
+    case company
     case oshikatsuCommon
     case oshikatsuMale
     case oshikatsuFemale
@@ -30,6 +31,7 @@ enum DictionaryPackID: String, CaseIterable {
         case .industrial: return "工業"
         case .sns: return "SNS"
         case .anime: return "アニメ"
+        case .company: return "会社名"
         case .oshikatsuCommon: return "推し活・共通"
         case .oshikatsuMale: return "推し活・男性"
         case .oshikatsuFemale: return "推し活・女性"
@@ -41,6 +43,7 @@ enum DictionaryPackID: String, CaseIterable {
         case .industrial: return "dictionary_industrial"
         case .sns: return "dictionary_sns"
         case .anime: return "dictionary_anime"
+        case .company: return "dictionary_company"
         case .oshikatsuCommon: return "dictionary_oshikatsu_common"
         case .oshikatsuMale: return "dictionary_oshikatsu_male"
         case .oshikatsuFemale: return "dictionary_oshikatsu_female"
