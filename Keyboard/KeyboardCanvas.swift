@@ -19,6 +19,7 @@ final class KeyboardCanvas: UIView {
     var onDeleteHold: ((UILongPressGestureRecognizer) -> Void)?
     var onCaps: (() -> Void)?
     var configureGlobe: ((UIButton) -> Void)?
+    var configureSwitchKey: ((UIButton) -> Void)?
     var configureMenu: ((UIButton) -> Void)?
     var configureSpaceMenu: ((UIButton) -> Void)?
     private var settings = LayoutSettings.defaults
@@ -111,6 +112,17 @@ final class KeyboardCanvas: UIView {
         globe.setImage(UIImage(systemName: "globe"), for: .normal)
         globe.accessibilityLabel = "次のキーボード"
         configureGlobe?(globe)
+        // iPad では iOS 側の地球キーがキーボード下に出ないため、このままでは
+        // One Keyboard から他キーボードへ抜ける手段が無くなる。iPad のとき
+        // だけ本物の切替キーを最下段の左端に足す (配線は VC 側で行う)。
+        var switchKey: KeyboardKey?
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let key = makeKey("", action: nil)
+            key.setImage(UIImage(systemName: "keyboard"), for: .normal)
+            key.accessibilityLabel = "キーボード切替"
+            configureSwitchKey?(key)
+            switchKey = key
+        }
         let space = makeKey(japanese ? "日本語" : "space") { [weak self] in self?.onAction?(.space) }
         configureSpaceMenu?(space)
         let comma = makeKey(japanese ? "、" : ",", commitOnDown: true) { [weak self] in self?.onText?(japanese ? "、" : ",") }
@@ -122,7 +134,8 @@ final class KeyboardCanvas: UIView {
         let pasteHold = UILongPressGestureRecognizer(target: self, action: #selector(returnHold(_:)))
         enter.addGestureRecognizer(pasteHold)
         spaceButton = space
-        bottom = [symbolsKey, globe, comma, space, period, enter]
+        bottom = switchKey.map { [$0, symbolsKey, globe, comma, space, period, enter] }
+            ?? [symbolsKey, globe, comma, space, period, enter]
         // 再構築前の確定/改行の表示状態を引き継ぐ。
         let composing = lastComposing ?? false
         lastComposing = nil
@@ -193,7 +206,7 @@ final class KeyboardCanvas: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard characterRows.count == 4, bottom.count == 6 else { return }
+        guard characterRows.count == 4, bottom.count == 6 || bottom.count == 7 else { return }
         let width = bounds.width, edge = width * 9 / 1206, gap = width * 20 / 1206
         let verticalGap = rowGap(width: width)
         let keyWidth = (width - 2 * edge - 9 * gap) / 10
@@ -241,7 +254,9 @@ final class KeyboardCanvas: UIView {
             }
             deleteButton?.setPreferredSymbolConfiguration(icon, forImageIn: .normal)
         }
-        let weights: [CGFloat] = [120, 110, 100, 460, 100, 242]
+        let weights: [CGFloat] = bottom.count == 7
+            ? [110, 120, 110, 100, 460, 100, 242]
+            : [120, 110, 100, 460, 100, 242]
         let available = width - 2 * edge - CGFloat(bottom.count - 1) * gap
         var x = edge
         let bottomY = nextY

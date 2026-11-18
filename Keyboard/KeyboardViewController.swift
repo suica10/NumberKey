@@ -249,6 +249,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                 button.addGestureRecognizer(hold)
             }
         }
+        canvas.configureSwitchKey = { [weak self] button in
+            guard let self else { return }
+            // システム標準の入力モード切替にそのまま配線する: タップで次の
+            // キーボード、長押しでキーボード一覧 (iPad 専用キー)。
+            button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
+        }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         Task { await service.warmUp() }
