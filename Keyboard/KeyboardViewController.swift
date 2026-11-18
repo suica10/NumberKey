@@ -28,6 +28,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var shifted = false
     private var capsLocked = false
     private var symbols = false
+    /// B案: 日本語モードで Shift を押して大文字から打ち始めた単語の入力中。
+    /// この間、英字はかな変換を通さず .direct で組成に入り、候補は入力
+    /// そのままだけになる。確定・削除し切り・外部リセットで解除される。
+    private var englishWordMode = false
     /// 記号画面で括弧キーを押した直後に帯へ出す括弧の変換候補。
     /// 選ぶと、挿入済みの括弧がその種類へ置き換わる。
     private var bracketCandidates: [String] = []
@@ -1147,12 +1151,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                 // ローマ字テーブルには「-」→「ー」の対応が無いため、
                 // キーボード側で直接入れる (長押し候補の先頭も「ー」)。
                 composition.insertAtCursorPosition("ー", inputStyle: .direct)
+                selected = nil
+                scheduleConversion()
+            } else if isRomanInput && handleEnglishWordKey(text) {
+                // B案: 英単語モードの打鍵は handleEnglishWordKey が処理した
+                // (組成への挿入と候補更新まで済んでいる)。
+                selected = nil
+            } else if englishWordMode && !composition.isEmpty && !symbols
+                        && text.count == 1 && text.first?.isASCII == true && text.first?.isNumber == true {
+                // 英単語モード中の数字は半角のまま組成に足す (PDF2 等)。
+                composition.insertAtCursorPosition(text, inputStyle: .direct)
+                selected = nil
+                showEnglishWordCandidates()
             } else {
                 let inputText = isRomanInput ? text.lowercased() : japaneseFullWidth(text)
                 composition.insertAtCursorPosition(inputText, inputStyle: isRomanInput ? .roman2kana : .direct)
+                selected = nil
+                scheduleConversion()
             }
-            selected = nil
-            scheduleConversion()
         } else {
             commitCurrent()
             let committedText = isJapanese && symbols ? japaneseFullWidth(text) : text
@@ -1256,7 +1272,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             // documentContext 読み直し（ホスト往復）を候補表示の経路から外す。
             var seen = Set<String>()
             let merged = Array((result + self.baseCandidates()).filter { seen.insert($0).inserted })
-            let withEnglish = self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot))
+            let withEnglish = self.insertEnglishExtras(merged, raw: self.rawRomaji(of: snapshot), kana: snapshot.convertTarget)
             let withPacks = self.insertPackExtras(withEnglish, kana: snapshot.convertTarget)
             // 選択履歴は統合の最終段で適用する: 一度確定した候補は
             // SNS の先頭固定よりも前に来る (優先順位: 履歴 > SNS > その他)。
@@ -1286,17 +1302,68 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         return result
     }
-    /// 日本語の候補列に英字そのまま候補を差し込む。英単語として成立すれば
-    /// 上位（2番手）、そうでなければ3番手。英字候補は日本語変換の学習対象にしない。
-    private func insertEnglishExtras(_ list: [String], raw: String) -> [String] {
+    /// 日本語の候補列に英字そのまま候補を差し込む。読みに未変換のローマ字が
+    /// 残っていて英単語として成立する綴りなら先頭 (「ok」→ おk になる問題への
+    /// 対策)、完全にかな変換できる英単語なら2番手、それ以外は3番手。
+    /// 英字候補は日本語変換の学習対象にしない。
+    private func insertEnglishExtras(_ list: [String], raw: String, kana: String) -> [String] {
         guard isJapanese, let lexicon = englishLexicon else { englishExtraValues = []; return list }
         let extras = lexicon.englishCandidates(forRomaji: raw).filter { !list.contains($0) }
         englishExtraValues = Set(extras)
         guard !extras.isEmpty else { return list }
         var merged = list
-        let position = min(lexicon.contains(raw) && raw.count >= 3 ? 1 : 2, merged.count)
+        let position = lexicon.shouldPromoteEnglishCandidate(raw: raw, kana: kana)
+            ? 0
+            : min(lexicon.isKnownWord(raw) && raw.count >= 3 ? 1 : 2, merged.count)
         merged.insert(contentsOf: extras, at: position)
         return merged
+    }
+    /// B案: 日本語モードで Shift を押して大文字から打ち始めた単語は、かな変換を
+    /// 通さず英字のまま確定できるようにする。打鍵を処理したら true、通常の
+    /// ローマ字入力として処理すべき場合は false を返す (false の場合、副作用は
+    /// 英単語モードの解除だけ)。
+    private func handleEnglishWordKey(_ text: String) -> Bool {
+        if englishWordMode {
+            guard !composition.isEmpty else { englishWordMode = false; return false }
+            // 単語の区切り: Shift も Caps も無い打鍵で、ここまでの綴りが英単語
+            // として成立している (または続きの無い大文字略語である) 場合は
+            // 英単語を閉じ、この打鍵から日本語に戻す (「OKだった」の流れ)。
+            if !shifted && !capsLocked && shouldCloseEnglishWord() {
+                englishWordMode = false
+                return false
+            }
+            let typed = shifted || capsLocked ? text.uppercased() : text
+            composition.insertAtCursorPosition(typed, inputStyle: .direct)
+            showEnglishWordCandidates()
+            return true
+        }
+        // 開始条件: 組成が空で、Shift (または Caps) を伴う英字。
+        guard composition.isEmpty, shifted || capsLocked else { return false }
+        englishWordMode = true
+        composition.insertAtCursorPosition(text.uppercased(), inputStyle: .direct)
+        showEnglishWordCandidates()
+        return true
+    }
+    /// 英単語モードを閉じるべきか。現在の綴りが英単語として成立しているか、
+    /// 大文字だけの略語で辞書の接頭辞として続きが無い場合に閉じる。
+    private func shouldCloseEnglishWord() -> Bool {
+        let raw = rawRomaji(of: composition)
+        guard raw.count >= 2, let lexicon = englishLexicon else { return false }
+        if lexicon.isKnownWord(raw.lowercased()) { return true }
+        if raw == raw.uppercased(), lexicon.completions(for: raw.lowercased(), limit: 1).isEmpty {
+            return true
+        }
+        return false
+    }
+    /// 英単語モード中の候補は入力そのままだけ。変換は回さない。
+    private func showEnglishWordCandidates() {
+        revision += 1; conversionTask?.cancel()
+        let raw = rawRomaji(of: composition)
+        candidates = [raw]
+        englishExtraValues = [raw]
+        conversionReady = true
+        selected = nil
+        renderState()
     }
     /// 辞書パックの候補を候補列に差し込む。SNS は候補列の先頭に固定し
     /// (変換・リランク・タイポ補正の後段なので並び替えでは動かない)、
@@ -1650,6 +1717,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         return true
     }
     private func space() {
+        // 英単語モード中のスペースは英単語の確定 (候補送りはしない)。
+        if englishWordMode, !composition.isEmpty {
+            commit(rawRomaji(of: composition))
+            return
+        }
         guard !composition.isEmpty else {
             // 日本語モードではスペースも全角（U+3000）にする。記号ページ表示中でも
             // 日本語モードなら全角。半角スペースは英字モード側の englishSpace() のみ。
@@ -1670,7 +1742,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private func commitRaw() {
         guard !composition.isEmpty else { return }
         var text = composition.convertTarget
-        if text.hasSuffix("n") { text.removeLast(); text += "ん" }
+        // 英単語モードの末尾 n は英字の一部 (「On」等) なので ん にしない。
+        if !englishWordMode, text.hasSuffix("n") { text.removeLast(); text += "ん" }
         commit(text)
     }
     private func commit(_ text: String, learn: Bool = false) {
@@ -1690,6 +1763,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private func resetComposition() {
         revision += 1; conversionTask?.cancel()
+        englishWordMode = false
         composition = ComposingText(); candidates = []; selected = nil
         conversionReady = false; waitingSpaceCount = 0
         if isViewLoaded { renderState(updateMarked: false) }
@@ -1704,7 +1778,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             if !isJapanese { renderState() }
         }
         else if selected != nil { selected = nil; renderState() }
-        else { composition.deleteBackwardFromCursorPosition(count: 1); scheduleConversion() }
+        else {
+            composition.deleteBackwardFromCursorPosition(count: 1)
+            if composition.isEmpty { englishWordMode = false }
+            scheduleConversion()
+        }
         if hadBracketCandidates { renderState(updateMarked: false) }
     }
     private func moveCursor(_ offset: Int) {

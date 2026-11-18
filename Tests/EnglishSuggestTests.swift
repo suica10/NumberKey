@@ -44,6 +44,28 @@ final class EnglishSuggestTests: XCTestCase {
         XCTAssertEqual(lexicon.englishCandidates(forRomaji: "あい"), [])
     }
 
+    func testSupplementaryWordsCountAsKnown() {
+        XCTAssertTrue(lexicon.isKnownWord("ok"))       // 補助セット
+        XCTAssertTrue(lexicon.isKnownWord("apple"))    // 本体辞書 (テスト用)
+        XCTAssertFalse(lexicon.isKnownWord("fusion"))
+        XCTAssertEqual(lexicon.englishCandidates(forRomaji: "ok"), ["ok", "Ok", "OK"])
+    }
+
+    func testPromoteEnglishCandidateOnlyWithUnconvertedRomaji() {
+        // 未変換のローマ字が残り、英単語として成立する綴りは先頭に出す
+        XCTAssertTrue(lexicon.shouldPromoteEnglishCandidate(raw: "ok", kana: "おk"))
+        XCTAssertTrue(lexicon.shouldPromoteEnglishCandidate(raw: "pdf", kana: "pdf"))
+        XCTAssertTrue(lexicon.shouldPromoteEnglishCandidate(raw: "usb", kana: "うsb"))
+        // 完全にかな変換できる綴りは日本語変換を奪わない
+        XCTAssertFalse(lexicon.shouldPromoteEnglishCandidate(raw: "sake", kana: "さけ"))
+        // 末尾 n の保留 (かん等) は日本語側
+        XCTAssertFalse(lexicon.shouldPromoteEnglishCandidate(raw: "kan", kana: "かn"))
+        // 未変換が残っても、英単語でなくローマ字として成立しうる綴りは対象外
+        XCTAssertFalse(lexicon.shouldPromoteEnglishCandidate(raw: "dat", kana: "だt"))
+        // ローマ字として成立し得ない綴り (母音なし) は英字とみなす
+        XCTAssertTrue(lexicon.shouldPromoteEnglishCandidate(raw: "mrk", kana: "mrk"))
+    }
+
     func testBundledWordlistParses() {
         let data = Data("apple\t150\nbanana\t120\n".utf8)
         let parsed = EnglishLexicon(data: data)

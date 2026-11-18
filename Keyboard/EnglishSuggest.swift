@@ -48,6 +48,39 @@ struct EnglishLexicon {
 
     func frequency(of word: String) -> Int { frequencyMap[word] ?? 0 }
 
+    /// 本体辞書 (AOSP 由来) に欠けている現代語・技術語の補助セット。
+    /// 英字候補の成立判定と大文字バリアント生成にだけ使い、自動修正には使わない。
+    static let supplementaryWords: Set<String> = [
+        "ok", "usb", "pdf", "wifi", "iphone", "ipad", "mac", "pc", "app", "apps",
+        "url", "web", "blog", "sns", "ai", "vr", "ar", "ios", "android", "windows",
+        "google", "apple", "amazon", "youtube", "twitter", "github", "python",
+        "swift", "sql", "html", "css", "json", "csv", "hdmi", "dvd", "cd", "tv",
+        "hd", "sd", "sim", "id", "api", "cpu", "gpu", "os", "ui", "ux",
+        "jpeg", "jpg", "png", "gif", "mp3", "mp4",
+    ]
+
+    /// 英単語として成立するか (本体辞書 + 補助セット)。
+    func isKnownWord(_ word: String) -> Bool {
+        contains(word) || Self.supplementaryWords.contains(word)
+    }
+
+    /// 日本語モードで英字候補を候補列の先頭に出すべきか。
+    /// 読み (kana = composition.convertTarget) に変換し切れていないローマ字が
+    /// 残っている場合にだけ「英字のつもり」とみなす。末尾の "n" は
+    /// 「かん」のような保留でありうるので除く。そのうえで、英単語として
+    /// 成立するか、ローマ字読みとして成立し得ない綴り (l/q/v/x を含む、
+    /// または母音がない) なら先頭に出す。完全にかなへ変換できる綴り
+    /// (さけ → sake 等) は対象外で、日本語変換を奪わない。
+    func shouldPromoteEnglishCandidate(raw: String, kana: String) -> Bool {
+        var reading = kana
+        if reading.hasSuffix("n") { reading.removeLast() }
+        guard reading.contains(where: { $0.isASCII && $0.isLetter }) else { return false }
+        let lowered = raw.lowercased()
+        if isKnownWord(lowered) { return true }
+        if lowered.contains(where: { "lqvx".contains($0) }) { return true }
+        return !lowered.contains(where: { "aeiou".contains($0) })
+    }
+
     /// prefix で始まる単語を頻度順に返す（prefix 自身は除く）。
     func completions(for prefix: String, limit: Int) -> [String] {
         guard !prefix.isEmpty, limit > 0 else { return [] }
@@ -104,11 +137,16 @@ struct EnglishLexicon {
 
     /// 日本語モードで打たれたローマ字に対する英字候補。
     /// 入力そのままを常に出し、英単語として成立する場合は先頭大文字も出す。
+    /// 補助セットの短い語 (ok / usb / pdf 等) は全大文字も出す。
     func englishCandidates(forRomaji raw: String) -> [String] {
         guard raw.count >= 2, raw.allSatisfy({ ($0.isASCII && $0.isLetter) || $0 == "'" }) else { return [] }
         var result = [raw]
-        if contains(raw) {
+        if isKnownWord(raw) {
             result.append(raw.prefix(1).uppercased() + String(raw.dropFirst()))
+            if Self.supplementaryWords.contains(raw), raw.count <= 3 {
+                let upper = raw.uppercased()
+                if !result.contains(upper) { result.append(upper) }
+            }
         }
         return result
     }
