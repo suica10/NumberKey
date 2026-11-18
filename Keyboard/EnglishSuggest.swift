@@ -169,6 +169,29 @@ struct EnglishLexicon {
         return (merged, extras)
     }
 
+    /// 組成全体が「英単語+日本語」の連結だった場合の分割候補 (例: okdatta →
+    /// OKだった)。読み (kana) に未変換ローマ字が残っている場合にだけ発動する
+    /// ので、完全にかな変換できる日本語 (あした・おかし等) では一切出ない。
+    /// tailKana は残りのローマ字を読みに変換する関数 (組成エンジン側の仕事
+    /// なので呼び出し側が渡す)。残りの読みにローマ字が残る分割は採用しない。
+    /// 分割は最長一致の既知英単語を1つだけ使う。
+    func segmentedExtras(raw: String, kana: String, tailKana: (String) -> String?) -> [String] {
+        var reading = kana
+        if reading.hasSuffix("n") { reading.removeLast() }
+        guard reading.contains(where: { $0.isASCII && $0.isLetter }) else { return [] }
+        guard raw.count >= 4, raw.allSatisfy({ $0.isASCII && $0.isLetter }),
+              raw == raw.lowercased() else { return [] }
+        for prefixLength in stride(from: raw.count - 2, through: 2, by: -1) {
+            let prefix = String(raw.prefix(prefixLength))
+            guard isKnownWord(prefix) else { continue }
+            let remainder = String(raw.dropFirst(prefixLength))
+            guard let tail = tailKana(remainder),
+                  !tail.contains(where: { $0.isASCII && $0.isLetter }) else { continue }
+            return englishCandidates(forRomaji: prefix).map { $0 + tail }
+        }
+        return []
+    }
+
     /// 区切り文字での確定時に置き換えてよい確信がある場合だけ修正先を返す（スペースでは使わない）。
     /// 辞書にある単語・短すぎる単語は対象外。距離2は頻度が非常に高い語に限る。
     func autocorrect(for word: String) -> String? {

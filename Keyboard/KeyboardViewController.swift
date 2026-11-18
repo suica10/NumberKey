@@ -1314,8 +1314,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private func insertEnglishExtras(_ list: [String], raw: String, kana: String) -> [String] {
         guard isJapanese, let lexicon = englishLexicon else { englishExtraValues = []; return list }
         let (merged, extras) = lexicon.insertingExtras(into: list, raw: raw, kana: kana)
-        englishExtraValues = Set(extras)
-        return merged
+        // 分割候補 (okdatta → OKだった): 組成全体が英単語+日本語の連結なら
+        // 先頭に出す。残りの読みは組成エンジンで変換して渡す。
+        let segmented = lexicon.segmentedExtras(raw: raw, kana: kana) { remainder in
+            var tail = ComposingText()
+            tail.insertAtCursorPosition(remainder, inputStyle: .roman2kana)
+            return tail.convertTarget
+        }.filter { !merged.contains($0) }
+        englishExtraValues = Set(extras + segmented)
+        guard !segmented.isEmpty else { return merged }
+        var out = merged
+        out.insert(contentsOf: segmented, at: 0)
+        return out
     }
     /// B案: 日本語モードで Shift を押して大文字から打ち始めた単語は、かな変換を
     /// 通さず英字のまま確定できるようにする。打鍵を処理したら true、通常の

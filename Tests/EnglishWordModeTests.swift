@@ -114,6 +114,38 @@ final class EnglishWordModeTests: XCTestCase {
         XCTAssertEqual(merged, ["酒", "sake", "Sake", "さけ", "佐久"])
     }
 
+    /// 分割候補: 小文字で一息に打った「okdatta」でも OKだった に到達できる。
+    func testSegmentedExtrasForOkDatta() {
+        let extras = lexicon.segmentedExtras(raw: "okdatta", kana: "おkだった", tailKana: kanaOf)
+        XCTAssertEqual(extras, ["okだった", "Okだった", "OKだった"])
+    }
+
+    func testSegmentedExtrasForPdfMiru() {
+        let extras = lexicon.segmentedExtras(raw: "pdfmiru", kana: "pdfみる", tailKana: kanaOf)
+        XCTAssertEqual(extras, ["pdfみる", "Pdfみる", "PDFみる"])
+    }
+
+    /// 完全にかな変換できる日本語では分割候補は出ない (日本語変換を奪わない)。
+    func testSegmentedExtrasBlockedWhenConversionIsClean() {
+        XCTAssertEqual(lexicon.segmentedExtras(raw: "ashita", kana: "あした", tailKana: kanaOf), [])
+        XCTAssertEqual(lexicon.segmentedExtras(raw: "okashi", kana: "おかし", tailKana: kanaOf), [])
+    }
+
+    /// ハーネスで実際に打った組成からでも分割候補が組み立てられる。
+    func testLowercaseStreamSegmentedExtrasReachOkDatta() {
+        var h = makeHarness()
+        for ch in ["o", "k", "d", "a", "t", "t", "a"] { h.type(ch) }
+        let extras = lexicon.segmentedExtras(
+            raw: h.rawRomaji(), kana: h.composition.convertTarget, tailKana: kanaOf)
+        XCTAssertTrue(extras.contains("OKだった"), "extras: \(extras)")
+    }
+
+    private func kanaOf(_ romaji: String) -> String? {
+        var c = ComposingText()
+        c.insertAtCursorPosition(romaji, inputStyle: .roman2kana)
+        return c.convertTarget
+    }
+
     /// モードは Shift/Caps + 組成が空のときだけ始まる。
     func testModeRequiresShiftAndEmptyComposition() {
         var tracker = EnglishWordMode()
