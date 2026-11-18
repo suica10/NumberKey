@@ -31,7 +31,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// B案: 日本語モードで Shift を押して大文字から打ち始めた単語の入力中。
     /// この間、英字はかな変換を通さず .direct で組成に入り、候補は入力
     /// そのままだけになる。確定・削除し切り・外部リセットで解除される。
-    private var englishWordMode = false
+    /// 状態遷移そのものは EnglishWordMode (テスト可能部品) が持つ。
+    private var englishWordTracker = EnglishWordMode()
+    private var englishWordMode: Bool {
+        get { englishWordTracker.isActive }
+        set { if !newValue { englishWordTracker.reset() } }
+    }
     /// 記号画面で括弧キーを押した直後に帯へ出す括弧の変換候補。
     /// 選ぶと、挿入済みの括弧がその種類へ置き換わる。
     private var bracketCandidates: [String] = []
@@ -1308,52 +1313,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 英字候補は日本語変換の学習対象にしない。
     private func insertEnglishExtras(_ list: [String], raw: String, kana: String) -> [String] {
         guard isJapanese, let lexicon = englishLexicon else { englishExtraValues = []; return list }
-        let extras = lexicon.englishCandidates(forRomaji: raw).filter { !list.contains($0) }
+        let (merged, extras) = lexicon.insertingExtras(into: list, raw: raw, kana: kana)
         englishExtraValues = Set(extras)
-        guard !extras.isEmpty else { return list }
-        var merged = list
-        let position = lexicon.shouldPromoteEnglishCandidate(raw: raw, kana: kana)
-            ? 0
-            : min(lexicon.isKnownWord(raw) && raw.count >= 3 ? 1 : 2, merged.count)
-        merged.insert(contentsOf: extras, at: position)
         return merged
     }
     /// B案: 日本語モードで Shift を押して大文字から打ち始めた単語は、かな変換を
     /// 通さず英字のまま確定できるようにする。打鍵を処理したら true、通常の
     /// ローマ字入力として処理すべき場合は false を返す (false の場合、副作用は
-    /// 英単語モードの解除だけ)。
+    /// 英単語モードの解除だけ)。判定は EnglishWordMode (テスト可能部品) に委譲。
     private func handleEnglishWordKey(_ text: String) -> Bool {
-        if englishWordMode {
-            guard !composition.isEmpty else { englishWordMode = false; return false }
-            // 単語の区切り: Shift も Caps も無い打鍵で、ここまでの綴りが英単語
-            // として成立している (または続きの無い大文字略語である) 場合は
-            // 英単語を閉じ、この打鍵から日本語に戻す (「OKだった」の流れ)。
-            if !shifted && !capsLocked && shouldCloseEnglishWord() {
-                englishWordMode = false
-                return false
-            }
-            let typed = shifted || capsLocked ? text.uppercased() : text
+        switch englishWordTracker.handleKey(text, shifted: shifted, capsLocked: capsLocked,
+                                            compositionIsEmpty: composition.isEmpty,
+                                            currentRaw: rawRomaji(of: composition),
+                                            lexicon: englishLexicon) {
+        case .insertDirect(let typed):
             composition.insertAtCursorPosition(typed, inputStyle: .direct)
             showEnglishWordCandidates()
             return true
+        case .passThrough:
+            return false
         }
-        // 開始条件: 組成が空で、Shift (または Caps) を伴う英字。
-        guard composition.isEmpty, shifted || capsLocked else { return false }
-        englishWordMode = true
-        composition.insertAtCursorPosition(text.uppercased(), inputStyle: .direct)
-        showEnglishWordCandidates()
-        return true
-    }
-    /// 英単語モードを閉じるべきか。現在の綴りが英単語として成立しているか、
-    /// 大文字だけの略語で辞書の接頭辞として続きが無い場合に閉じる。
-    private func shouldCloseEnglishWord() -> Bool {
-        let raw = rawRomaji(of: composition)
-        guard raw.count >= 2, let lexicon = englishLexicon else { return false }
-        if lexicon.isKnownWord(raw.lowercased()) { return true }
-        if raw == raw.uppercased(), lexicon.completions(for: raw.lowercased(), limit: 1).isEmpty {
-            return true
-        }
-        return false
     }
     /// 英単語モード中の候補は入力そのままだけ。変換は回さない。
     private func showEnglishWordCandidates() {

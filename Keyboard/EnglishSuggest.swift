@@ -151,6 +151,24 @@ struct EnglishLexicon {
         return result
     }
 
+    /// 日本語の候補列に英字そのまま候補を差し込んだ結果と、差し込んだ英字候補
+    /// そのものを返す (旧 VC.insertEnglishExtras の判定部)。読みに未変換の
+    /// ローマ字が残っていて英単語として成立する綴りなら先頭 (「ok」→ おk に
+    /// なる問題への対策)、完全にかな変換できる英単語なら2番手、それ以外は
+    /// 3番手。英字候補は日本語変換の学習対象にしないため、呼び出し側は
+    /// extras を記録して学習から外す。
+    func insertingExtras(into list: [String], raw: String, kana: String)
+        -> (merged: [String], extras: [String]) {
+        let extras = englishCandidates(forRomaji: raw).filter { !list.contains($0) }
+        guard !extras.isEmpty else { return (list, []) }
+        var merged = list
+        let position = shouldPromoteEnglishCandidate(raw: raw, kana: kana)
+            ? 0
+            : min(isKnownWord(raw) && raw.count >= 3 ? 1 : 2, merged.count)
+        merged.insert(contentsOf: extras, at: position)
+        return (merged, extras)
+    }
+
     /// 区切り文字での確定時に置き換えてよい確信がある場合だけ修正先を返す（スペースでは使わない）。
     /// 辞書にある単語・短すぎる単語は対象外。距離2は頻度が非常に高い語に限る。
     func autocorrect(for word: String) -> String? {
