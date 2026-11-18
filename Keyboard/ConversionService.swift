@@ -32,7 +32,8 @@ actor ConversionService {
     }
 
     /// 世代遅れでスキップした場合は nil を返す（本当に候補が無い場合の [] と区別する）。
-    func candidates(for composition: ComposingText, generation: Int) -> [String]? {
+    /// context は同じフィールドで確定済みのテキスト (LM v3 の文脈条件付け用)。
+    func candidates(for composition: ComposingText, generation: Int, context: String = "") -> [String]? {
         let target = composition.convertTarget
         if generation < newestGeneration {
             return nil
@@ -50,6 +51,24 @@ actor ConversionService {
         let convStart = ProcessInfo.processInfo.systemUptime
         let visibleCandidates = fullInputCandidates(for: composition, converter: converter)
         let top = visibleCandidates.prefix(12).map { $0 }
+        // LM v3: 文脈条件付きスコア (候補スパンの平均 logprob) に、変換器自身の
+        // 順位プライア (-0.5/位) と常用漢字調整を重ねて最終順位にする。
+        // 係数はオフライン評価で検証済み (dev で決定: test top1 0.902、
+        // 素の順序 0.824 / v2 経路 0.650)。検証用差し込み口 (scorerOverride)
+        // が設定されている場合は従来経路を優先し、テストの意味を変えない。
+        if Self.scorerOverride == nil, let v3 = ContextRerankScorer.shared {
+            let scores = v3.score(top, context: context)
+            let joyo = JoyoKanji.shared
+            let adjusted = top.indices.map { i in
+                scores[i] + (joyo?.adjustment(for: top[i]) ?? 0) - 0.5 * Float(i)
+            }
+            let order = top.indices.sorted { a, b in
+                adjusted[a] != adjusted[b] ? adjusted[a] > adjusted[b] : a < b
+            }
+            let reranked = order.map { top[$0] }
+            Self.perfSink?("conv", (ProcessInfo.processInfo.systemUptime - convStart) * 1000)
+            return reranked
+        }
         // AI リランク: 学習済み LM で候補を並べ替える (評価で top-1 76.0%→86.5%)。
         // モデルが読み込めなければ従来の順序のまま。計測 (conv) は変換+並べ替え
         // の合計 — 利用者体感に効くのはサービス全体の時間だから。

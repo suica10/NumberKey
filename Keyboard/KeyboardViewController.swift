@@ -19,6 +19,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private let service = ConversionService()
     private var composition = ComposingText()
+    /// LM v3 の文脈条件付け用に、このキーボード自身が確定したテキストを
+    /// 追跡する (ホストの documentContext を打鍵ごとに読み直す往復を避ける
+    /// ため)。変換確定のたびに伸び、外部編集・カーソル移動でリセットする。
+    private var committedContext = ""
     private var candidates: [String] = []
     private var selected: Int?
     private var shifted = false
@@ -646,7 +650,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         syncHostChange()
     }
     private func syncHostChange() {
-        if editor.hostDidChange() { resetComposition() }
+        if editor.hostDidChange() { committedContext = ""; resetComposition() }
     }
     private func rebuildCanvas() {
         let snapshot = settings.snapshot
@@ -1195,6 +1199,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let inputStamp = PerfProbe.stamp()
         revision += 1
         let requestRevision = revision, snapshot = composition
+        let contextSnapshot = committedContext
         conversionReady = false; waitingSpaceCount = 0; selected = nil
         // 候補を毎打鍵でリセットすると候補欄が点滅して遅く見える。前回の候補を
         // 残したまま新しい変換結果を待つ。
@@ -1219,7 +1224,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             }
             // 世代遅れでスキップされたら nil。状態は新しいタスクが持つので触らない。
             let awaitStamp = PerfProbe.stamp()
-            let serviceResult = await service.candidates(for: snapshot, generation: requestRevision)
+            let serviceResult = await service.candidates(for: snapshot, generation: requestRevision, context: contextSnapshot)
             guard let result = serviceResult else {
                 return
             }
@@ -1665,6 +1670,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         editor.commit(text)
         resetComposition()
+        // 確定したテキストを LM v3 の文脈として蓄積する (末尾 120 字まで)。
+        committedContext = String((committedContext + text).suffix(120))
     }
     private func resetComposition() {
         revision += 1; conversionTask?.cancel()
@@ -1678,6 +1685,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if composition.isEmpty {
             if undoEnglishAutocorrectIfApplicable() { renderState(); return }
             editor.deleteBackward()
+            if !committedContext.isEmpty { committedContext.removeLast() }
             if !isJapanese { renderState() }
         }
         else if selected != nil { selected = nil; renderState() }
@@ -1686,7 +1694,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private func moveCursor(_ offset: Int) {
         syncHostChange()
-        if composition.isEmpty { editor.move(offset) }
+        // カーソルが動くと「直前テキスト = 追跡中の文脈」が崩れるので捨てる。
+        if composition.isEmpty { committedContext = ""; editor.move(offset) }
         else { selected = nil; _ = composition.moveCursorFromCursorPosition(count: offset); scheduleConversion() }
     }
     private func repeatDelete(_ gesture: UILongPressGestureRecognizer) {
