@@ -127,7 +127,7 @@ private final class FlickKey: UIView {
 /// 純正準拠のフリック面。実機の純正レイアウト (2026-11-25 ユーザー提供
 /// スクリーンショット) に合わせた4段構成で、最下段バーは持たない:
 /// 左レール = 絵文字 / ☆123 / ABC (縦長)、右レール = 削除 / 空白・変換 /
-/// 確定 (縦長)、グリッド4段目の右端が「゛゜小」。
+/// 確定 (縦長)、グリッド4段目は左から「゛゜小」「わ」「、。？！」。
 /// 純正の左レール上段2キー (→ = トグル入力のクールタイム解除、
 /// 曲矢印 = トグルの逆順) はトグル入力専用なので、フリックのみの本面では
 /// 絵文字キーと ☆123 (記号面への直行) に置き換える。
@@ -288,13 +288,13 @@ final class FlickCanvas: UIView, KeyboardSurface {
             if index < 9 {
                 key.frame = CGRect(x: colX[index % 3], y: rowYs[index / 3], width: unit, height: height)
             } else if index == 9 {
-                key.frame = CGRect(x: colX[0], y: rowYs[3], width: unit, height: height)
-            } else {
                 key.frame = CGRect(x: colX[1], y: rowYs[3], width: unit, height: height)
+            } else {
+                key.frame = CGRect(x: colX[2], y: rowYs[3], width: unit, height: height)
             }
             key.setNeedsLayout()
         }
-        dakutenKey?.frame = CGRect(x: colX[2], y: rowYs[3], width: unit, height: height)
+        dakutenKey?.frame = CGRect(x: colX[0], y: rowYs[3], width: unit, height: height)
         let tallHeight = height * 2 + vGap
         if let switchKey {
             // iPad: 左レールは上から 切替 / 絵文字 / ☆123 / ABC (各1段)。
