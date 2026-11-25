@@ -1286,7 +1286,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
               composition.convertTargetCursorPosition == composition.convertTarget.count,
               let last = composition.convertTarget.last,
               let next = Self.dakutenCycle[last] else { return }
-        composition.deleteBackwardFromCursorPosition()
+        composition.deleteBackwardFromCursorPosition(count: 1)
         composition.insertAtCursorPosition(String(next), inputStyle: .direct)
         selected = nil
         scheduleConversion()
