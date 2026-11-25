@@ -50,6 +50,9 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("表示") {
+                    Picker("入力方式", selection: $layout.flickMode) {
+                        Text("QWERTY").tag(false); Text("フリック").tag(true)
+                    }
                     Picker("配色", selection: $layout.theme) {
                         Text("自動").tag(0); Text("ライト").tag(1); Text("ダーク").tag(2)
                     }

@@ -30,6 +30,9 @@ struct LayoutSettings: Codable, Equatable {
     var keyHeight: Double = 0
     var theme = 2
     var japanese = true
+    /// フリックモード (日本語入力を純正準拠のフリック配列にする)。false は
+    /// 従来の QWERTY。英数に切り替えた場合は flickMode でも QWERTY 面を使う。
+    var flickMode = false
     // 定型文はこの共有設定には含めない。キーボード拡張自身の PhraseStore が持ち、
     // App Group の署名状態に左右されないようにするため（旧データの phrases キーは
     // デコード時に無視される。移行は PhraseStore の legacyPhrases が担う）。
@@ -37,7 +40,7 @@ struct LayoutSettings: Codable, Equatable {
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
 
-    private enum CodingKeys: String, CodingKey { case version, keyHeight, theme, japanese }
+    private enum CodingKeys: String, CodingKey { case version, keyHeight, theme, japanese, flickMode }
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -45,6 +48,7 @@ struct LayoutSettings: Codable, Equatable {
         keyHeight = try values.decodeIfPresent(Double.self, forKey: .keyHeight) ?? 0
         theme = try values.decodeIfPresent(Int.self, forKey: .theme) ?? 2
         japanese = try values.decodeIfPresent(Bool.self, forKey: .japanese) ?? true
+        flickMode = try values.decodeIfPresent(Bool.self, forKey: .flickMode) ?? false
     }
 
     var isValid: Bool {

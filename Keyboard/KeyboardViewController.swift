@@ -51,6 +51,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// （詳細は updateRequestedHeight のコメント参照）。
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
+    private let flickCanvas = FlickCanvas()
+    /// フリック面が有効な状態か (設定 ON かつ日本語モード)。英数では
+    /// フリック設定でも QWERTY 面を使う (フリックは日本語専用)。
+    private var flickActive: Bool { settings.snapshot.flickMode && isJapanese }
+    private var activeSurface: KeyboardSurface { flickActive ? flickCanvas : canvas }
     /// 候補帯のコンテナ（build 58: UIScrollView を廃止）。
     /// build 56 まで帯は UIScrollView で、中身を手動フレーム＋手動
     /// contentSize にしても「帯に触れると候補の表示だけが消える
@@ -266,6 +271,29 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
+        view.addSubview(flickCanvas)
+        flickCanvas.isHidden = true
+        flickCanvas.onText = { [weak self] in self?.insertFlick($0) }
+        flickCanvas.onAction = { [weak self] in self?.handle($0) }
+        flickCanvas.onDeleteHold = { [weak self] in self?.repeatDelete($0) }
+        flickCanvas.onDakuten = { [weak self] in self?.applyDakuten() }
+        flickCanvas.onEmoji = { [weak self] in self?.showEmojiPanel() }
+        flickCanvas.onLanguage = { [weak self] in
+            guard let self else { return }
+            // 長押しで定型文パネルを開いた直後の離しタップは切替にしない
+            // (スペースキーの既存ガードと同じ作法)。
+            if let opened = self.pickerOpenedAt, Date().timeIntervalSince(opened) < 0.6 { return }
+            self.setLanguage(false)
+        }
+        flickCanvas.onLanguageHold = { [weak self] in
+            guard let self, !self.isCapturing else { return }
+            self.pickerOpenedAt = Date()
+            self.showPhrasePicker()
+        }
+        flickCanvas.configureSwitchKey = { [weak self] button in
+            guard self != nil else { return }
+            button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
+        }
         Task { await service.warmUp() }
         // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
         // アプリを開くボタンは試みとして置き、効かなくても文言で案内できる形にする。
@@ -506,7 +534,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// パネル高さの予算計算からも同様に外した（帯・キー列との合算で
     /// 画面の約6割に収まる性質は変わらない）。
     private func layoutMetrics(width: CGFloat) -> LayoutMetrics {
-        let keysHeight = canvas.preferredHeight(width: width)
+        let keysHeight = activeSurface.preferredHeight(width: width)
         let candidateHeight = currentCandidateHeight
         var capturePanelHeight: CGFloat = 0
         if isCapturing {
@@ -640,7 +668,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         candidateStrip.isHidden = candidateHeight == 0
         candidateStrip.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
-        canvas.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
+        let canvasFrame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
+        canvas.frame = canvasFrame
+        flickCanvas.frame = canvasFrame
         // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
         expiredView.isHidden = !purchaseExpired
         if purchaseExpired {
@@ -671,9 +701,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let snapshot = settings.snapshot
         overrideUserInterfaceStyle = snapshot.theme == 1 ? .light : snapshot.theme == 2 ? .dark : .unspecified
         view.backgroundColor = traitCollection.userInterfaceStyle == .light ? UIColor(white: 0.82, alpha: 1) : UIColor(white: 0.17, alpha: 1)
-        canvas.configure(snapshot, shifted: shifted, symbols: symbols, japanese: isJapanese)
-        canvas.setJapaneseMode(isJapanese)
-        canvas.updateShift(shifted, caps: capsLocked)
+        canvas.isHidden = flickActive
+        flickCanvas.isHidden = !flickActive
+        activeSurface.configure(snapshot, shifted: shifted, symbols: symbols, japanese: isJapanese)
+        activeSurface.setJapaneseMode(isJapanese)
+        activeSurface.updateShift(shifted, caps: capsLocked)
         renderState(updateMarked: false)
         view.setNeedsLayout()
     }
@@ -1119,7 +1151,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         switch action {
         case .shift:
             if symbols { symbols = false; rebuildCanvas() }
-            else { shifted.toggle(); capsLocked = false; canvas.updateShift(shifted, caps: false) }
+            else { shifted.toggle(); capsLocked = false; activeSurface.updateShift(shifted, caps: false) }
         case .delete: backspace()
         case .symbols:
             symbols.toggle(); rebuildCanvas()
@@ -1184,7 +1216,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                 bracketCandidates = variants
             }
         }
-        if shifted && !capsLocked { shifted = false; canvas.updateShift(false, caps: false) }
+        if shifted && !capsLocked { shifted = false; activeSurface.updateShift(false, caps: false) }
         if !isJapanese, composition.isEmpty { renderState() }
         else if hadBracketCandidates || !bracketCandidates.isEmpty { renderState(updateMarked: false) }
     }
@@ -1231,6 +1263,52 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         editor.insert(value)
         renderState(updateMarked: false)
     }
+    /// フリック面からのかな入力。通常の insert() は「組成が空でかな入力」だと
+    /// 直接挿入に落ちて変換が始まらないため、フリックでは組成を強制的に
+    /// 始める。句読点だけは QWERTY と同じく、組成が空なら直接挿入する。
+    private func insertFlick(_ text: String) {
+        syncHostChange()
+        bracketCandidates = []
+        guard isJapanese else { insert(text); return }
+        if composition.isEmpty && (text == "、" || text == "。") { insert(text); return }
+        if composition.input.count >= 96 { commitRaw() }
+        composition.insertAtCursorPosition(text, inputStyle: .direct)
+        selected = nil
+        scheduleConversion()
+    }
+
+    /// フリック面の「゛゜小」キー。カーソル直前のかなを、濁点→半濁点→
+    /// 小書きの順に循環変換する (純正の循環仕様)。カーソルが組成末尾に
+    /// あるときだけ対象にする (フリック入力中は通常末尾にある)。
+    private func applyDakuten() {
+        syncHostChange()
+        guard isJapanese, !composition.isEmpty,
+              composition.convertTargetCursorPosition == composition.convertTarget.count,
+              let last = composition.convertTarget.last,
+              let next = Self.dakutenCycle[last] else { return }
+        composition.deleteBackwardFromCursorPosition()
+        composition.insertAtCursorPosition(String(next), inputStyle: .direct)
+        selected = nil
+        scheduleConversion()
+    }
+
+    private static let dakutenCycle: [Character: Character] = [
+        "か": "が", "が": "か", "き": "ぎ", "ぎ": "き", "く": "ぐ", "ぐ": "く", "け": "げ", "げ": "け", "こ": "ご", "ご": "こ",
+        "さ": "ざ", "ざ": "さ", "し": "じ", "じ": "し", "す": "ず", "ず": "す", "せ": "ぜ", "ぜ": "せ", "そ": "ぞ", "ぞ": "そ",
+        "た": "だ", "だ": "た", "ち": "ぢ", "ぢ": "ち", "つ": "っ", "っ": "づ", "づ": "つ", "て": "で", "で": "て", "と": "ど", "ど": "と",
+        "は": "ば", "ば": "ぱ", "ぱ": "は", "ひ": "び", "び": "ぴ", "ぴ": "ひ", "ふ": "ぶ", "ぶ": "ぷ", "ぷ": "ふ",
+        "へ": "べ", "べ": "ぺ", "ぺ": "へ", "ほ": "ぼ", "ぼ": "ぽ", "ぽ": "ほ",
+        "う": "ゔ", "ゔ": "ぅ", "ぅ": "う", "あ": "ぁ", "ぁ": "あ", "い": "ぃ", "ぃ": "い", "え": "ぇ", "ぇ": "え", "お": "ぉ", "ぉ": "お",
+        "や": "ゃ", "ゃ": "や", "ゆ": "ゅ", "ゅ": "ゆ", "よ": "ょ", "ょ": "よ", "わ": "ゎ", "ゎ": "わ",
+        "カ": "ガ", "ガ": "カ", "キ": "ギ", "ギ": "キ", "ク": "グ", "グ": "ク", "ケ": "ゲ", "ゲ": "ケ", "コ": "ゴ", "ゴ": "コ",
+        "サ": "ザ", "ザ": "サ", "シ": "ジ", "ジ": "シ", "ス": "ズ", "ズ": "ス", "セ": "ゼ", "ゼ": "セ", "ソ": "ゾ", "ゾ": "ソ",
+        "タ": "ダ", "ダ": "タ", "チ": "ヂ", "ヂ": "チ", "ツ": "ッ", "ッ": "ヅ", "ヅ": "ツ", "テ": "デ", "デ": "テ", "ト": "ド", "ド": "ト",
+        "ハ": "バ", "バ": "パ", "パ": "ハ", "ヒ": "ビ", "ビ": "ピ", "ピ": "ヒ", "フ": "ブ", "ブ": "プ", "プ": "フ",
+        "ヘ": "ベ", "ベ": "ペ", "ペ": "ヘ", "ホ": "ボ", "ボ": "ポ", "ポ": "ホ",
+        "ウ": "ヴ", "ヴ": "ゥ", "ゥ": "ウ", "ア": "ァ", "ァ": "ア", "イ": "ィ", "ィ": "イ", "エ": "ェ", "ェ": "エ", "オ": "ォ", "ォ": "オ",
+        "ヤ": "ャ", "ャ": "ヤ", "ユ": "ュ", "ュ": "ユ", "ヨ": "ョ", "ョ": "ヨ", "ワ": "ヮ", "ヮ": "ワ",
+    ]
+
     private func scheduleConversion() {
         let inputStamp = PerfProbe.stamp()
         revision += 1
@@ -1389,7 +1467,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             let caret = selected == nil ? String(display.prefix(composition.convertTargetCursorPosition)).utf16.count : display.utf16.count
             PerfProbe.shared.measure("show") { editor.show(display, caret: caret) }
         }
-        canvas.setComposing(!composition.isEmpty)
+        activeSurface.setComposing(!composition.isEmpty)
         let shouldHideCandidates = !showsCandidateStrip
         if candidateStrip.isHidden != shouldHideCandidates {
             view.setNeedsLayout()
