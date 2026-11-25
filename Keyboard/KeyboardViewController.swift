@@ -52,9 +52,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var heightConstraint: NSLayoutConstraint?
     private let canvas = KeyboardCanvas()
     private let flickCanvas = FlickCanvas()
-    /// フリック面が有効な状態か (設定 ON かつ日本語モード)。英数では
-    /// フリック設定でも QWERTY 面を使う (フリックは日本語専用)。
-    private var flickActive: Bool { settings.snapshot.flickMode && isJapanese }
+    /// フリック面が有効な状態か (設定 ON かつ日本語モード)。英数と記号面
+    /// ではフリック設定でも QWERTY 面を使う (フリックは日本語専用)。
+    private var flickActive: Bool { settings.snapshot.flickMode && isJapanese && !symbols }
     private var activeSurface: KeyboardSurface { flickActive ? flickCanvas : canvas }
     /// 候補帯のコンテナ（build 58: UIScrollView を廃止）。
     /// build 56 まで帯は UIScrollView で、中身を手動フレーム＋手動
@@ -289,6 +289,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             guard let self, !self.isCapturing else { return }
             self.pickerOpenedAt = Date()
             self.showPhrasePicker()
+        }
+        flickCanvas.onSymbols = { [weak self] in
+            // ☆123: QWERTY の記号面へ直行する (純正フリックのみモードの
+            // タブと同じ役目)。戻りは記号面の「ABC」キーと言語切替。
+            guard let self, !self.symbols else { return }
+            self.symbols = true
+            self.rebuildCanvas()
         }
         flickCanvas.configureSwitchKey = { [weak self] button in
             guard self != nil else { return }

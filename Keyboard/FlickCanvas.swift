@@ -59,10 +59,11 @@ private final class FlickKey: UIView {
     private var direction: FlickDirection = .center
     private var shadowSize: CGSize = .zero
 
-    init(row: FlickRow) {
+    init(row: FlickRow, displayLabel: String? = nil) {
         self.row = row
         super.init(frame: .zero)
-        label.text = row.center
+        label.text = displayLabel ?? row.center
+        if displayLabel != nil { label.adjustsFontSizeToFitWidth = true; label.minimumScaleFactor = 0.5 }
         label.textAlignment = .center
         label.isUserInteractionEnabled = false
         addSubview(label)
@@ -123,10 +124,15 @@ private final class FlickKey: UIView {
     }
 }
 
-/// 純正準拠のフリック面。3列×4行のかなグリッド + 左レール (絵文字 /
-/// 英数切替) + 右レール (削除) + 最下段 (空白/変換・改行)。
-/// 長押し割当 (2026-11-24 ユーザー口述): 改行長押し→クリップボード、
-/// 英数キー長押し→定型文、絵文字キーはタップで絵文字パネル。
+/// 純正準拠のフリック面。実機の純正レイアウト (2026-11-25 ユーザー提供
+/// スクリーンショット) に合わせた4段構成で、最下段バーは持たない:
+/// 左レール = 絵文字 / ☆123 / ABC (縦長)、右レール = 削除 / 空白・変換 /
+/// 確定 (縦長)、グリッド4段目の右端が「゛゜小」。
+/// 純正の左レール上段2キー (→ = トグル入力のクールタイム解除、
+/// 曲矢印 = トグルの逆順) はトグル入力専用なので、フリックのみの本面では
+/// 絵文字キーと ☆123 (記号面への直行) に置き換える。
+/// 長押し割当 (2026-11-24 ユーザー口述): 確定長押し→クリップボード、
+/// ABC 長押し→定型文、絵文字キーはタップで絵文字パネル。
 @MainActor
 final class FlickCanvas: UIView, KeyboardSurface {
     var onText: ((String) -> Void)?
@@ -141,10 +147,12 @@ final class FlickCanvas: UIView, KeyboardSurface {
     var onEmoji: (() -> Void)?
     var onLanguage: (() -> Void)?
     var onLanguageHold: (() -> Void)?
+    var onSymbols: (() -> Void)?
 
     private var settings = LayoutSettings.defaults
     private var flickKeys: [FlickKey] = []
     private var emojiKey: KeyboardKey?
+    private var symbolsKey: KeyboardKey?
     private var languageKey: KeyboardKey?
     private var deleteKey: KeyboardKey?
     private var dakutenKey: KeyboardKey?
@@ -178,8 +186,9 @@ final class FlickCanvas: UIView, KeyboardSurface {
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; popupCells = [:]; flickKeys = []
         backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
-        for row in Self.rows {
-            let key = FlickKey(row: row)
+        for (index, row) in Self.rows.enumerated() {
+            // 記号キーの表示ラベルは純正どおり「、。？！」。
+            let key = FlickKey(row: row, displayLabel: index == Self.rows.count - 1 ? "、。？！" : nil)
             key.normalColor = keyColor
             key.pressedColor = dark ? UIColor(white: 0.56, alpha: 1) : UIColor(white: 0.92, alpha: 1)
             key.dark = dark
@@ -193,6 +202,8 @@ final class FlickCanvas: UIView, KeyboardSurface {
         dakutenKey?.accessibilityLabel = "濁点・小書き"
         emojiKey = makeKey("😊") { [weak self] in self?.onEmoji?() }
         emojiKey?.accessibilityLabel = "絵文字"
+        symbolsKey = makeKey("☆123") { [weak self] in self?.onSymbols?() }
+        symbolsKey?.accessibilityLabel = "数字・記号"
         languageKey = makeKey("ABC") { [weak self] in self?.onLanguage?() }
         languageKey?.accessibilityLabel = "英数入力"
         let languageHold = UILongPressGestureRecognizer(target: self, action: #selector(languageHeld(_:)))
@@ -202,13 +213,13 @@ final class FlickCanvas: UIView, KeyboardSurface {
         deleteKey?.accessibilityLabel = "削除"
         deleteKey?.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(deleteHeld(_:))))
         spaceKey = makeKey(composing ? "変換" : "空白") { [weak self] in self?.onAction?(.space) }
-        spaceKey?.accessibilityLabel = "空白・変換"
+        spaceKey?.accessibilityLabel = "空白・次候補"
         enterKey = makeKey(composing ? "確定" : "return") { [weak self] in self?.onAction?(.enter) }
         enterKey?.accessibilityLabel = composing ? "確定" : "改行"
         let enterHold = UILongPressGestureRecognizer(target: self, action: #selector(returnHeld(_:)))
         enterKey?.addGestureRecognizer(enterHold)
-        // iPad ではシステムの地球キーが出ないため、切替キーを最下段左端に足す
-        // (QWERTY 面と同じ理由・同じ配線)。
+        // iPad ではシステムの地球キーが出ないため切替キーが要る (QWERTY 面と
+        // 同じ理由・同じ配線)。置き場所は左レールの最上段にする。
         if UIDevice.current.userInterfaceIdiom == .pad {
             let key = makeKey("", action: nil)
             key.setImage(UIImage(systemName: "keyboard"), for: .normal)
@@ -254,7 +265,7 @@ final class FlickCanvas: UIView, KeyboardSurface {
     private func rowGap(width: CGFloat) -> CGFloat { width * 18 / 1206 }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
-        rowHeight(width: width) * 5 + rowGap(width: width) * 4 + 7
+        rowHeight(width: width) * 4 + rowGap(width: width) * 3 + 7
     }
 
     override func layoutSubviews() {
@@ -263,49 +274,50 @@ final class FlickCanvas: UIView, KeyboardSurface {
         let width = bounds.width
         let edge = width * 9 / 1206, gap = width * 16 / 1206
         let vGap = rowGap(width: width), height = rowHeight(width: width)
-        // 列: 左レール 0.92 / かな 1.0 ×3 / 右レール 0.92
-        let unit = (width - 2 * edge - 4 * gap) / 4.84
-        let rail = unit * 0.92
-        let colX: [CGFloat] = [edge, edge + rail + gap, edge + rail + unit + 2 * gap, edge + rail + 2 * unit + 3 * gap]
-        let rightX = edge + rail + 3 * unit + 4 * gap
-        var nextY: CGFloat = 3
+        // 列: 左レール 0.84 / かな 1.0 ×3 / 右レール 1.08 (純正の比率)
+        let unit = (width - 2 * edge - 4 * gap) / 4.92
+        let leftRail = unit * 0.84, rightRail = unit * 1.08
+        let colX: [CGFloat] = [edge + leftRail + gap,
+                               edge + leftRail + unit + 2 * gap,
+                               edge + leftRail + 2 * unit + 3 * gap]
+        let rightX = edge + leftRail + 3 * unit + 4 * gap
         var rowYs: [CGFloat] = []
+        var nextY: CGFloat = 3
         for _ in 0..<4 { rowYs.append(nextY); nextY += height + vGap }
         for (index, key) in flickKeys.enumerated() {
-            let gridIndex = index < 10 ? index : 10
-            let row = gridIndex / 3, col = gridIndex % 3
             if index < 9 {
-                key.frame = CGRect(x: colX[col + 1], y: rowYs[row], width: unit, height: height)
+                key.frame = CGRect(x: colX[index % 3], y: rowYs[index / 3], width: unit, height: height)
             } else if index == 9 {
-                // わ行は4行目の左。
-                key.frame = CGRect(x: colX[1], y: rowYs[3], width: unit, height: height)
+                key.frame = CGRect(x: colX[0], y: rowYs[3], width: unit, height: height)
             } else {
-                // 記号キーは4行目の中央。
-                key.frame = CGRect(x: colX[2], y: rowYs[3], width: unit, height: height)
+                key.frame = CGRect(x: colX[1], y: rowYs[3], width: unit, height: height)
             }
             key.setNeedsLayout()
         }
-        dakutenKey?.frame = CGRect(x: colX[3], y: rowYs[3], width: unit, height: height)
-        let railHeight = height * 2 + vGap
-        emojiKey?.frame = CGRect(x: edge, y: rowYs[0], width: rail, height: railHeight)
-        languageKey?.frame = CGRect(x: edge, y: rowYs[2], width: rail, height: railHeight)
-        deleteKey?.frame = CGRect(x: rightX, y: rowYs[0], width: rail, height: height * 4 + vGap * 3)
-        let bottomY = nextY
-        let enterWidth = unit * 1.5
-        var spaceX = edge
+        dakutenKey?.frame = CGRect(x: colX[2], y: rowYs[3], width: unit, height: height)
+        let tallHeight = height * 2 + vGap
         if let switchKey {
-            switchKey.frame = CGRect(x: edge, y: bottomY, width: rail, height: height)
-            spaceX = edge + rail + gap
+            // iPad: 左レールは上から 切替 / 絵文字 / ☆123 / ABC (各1段)。
+            switchKey.frame = CGRect(x: edge, y: rowYs[0], width: leftRail, height: height)
+            emojiKey?.frame = CGRect(x: edge, y: rowYs[1], width: leftRail, height: height)
+            symbolsKey?.frame = CGRect(x: edge, y: rowYs[2], width: leftRail, height: height)
+            languageKey?.frame = CGRect(x: edge, y: rowYs[3], width: leftRail, height: height)
+        } else {
+            emojiKey?.frame = CGRect(x: edge, y: rowYs[0], width: leftRail, height: height)
+            symbolsKey?.frame = CGRect(x: edge, y: rowYs[1], width: leftRail, height: height)
+            languageKey?.frame = CGRect(x: edge, y: rowYs[2], width: leftRail, height: tallHeight)
         }
-        enterKey?.frame = CGRect(x: width - edge - enterWidth, y: bottomY, width: enterWidth, height: height)
-        spaceKey?.frame = CGRect(x: spaceX, y: bottomY, width: width - edge - enterWidth - gap - spaceX, height: height)
-        for key in [emojiKey, languageKey, deleteKey, dakutenKey, spaceKey, enterKey, switchKey] {
+        deleteKey?.frame = CGRect(x: rightX, y: rowYs[0], width: rightRail, height: height)
+        spaceKey?.frame = CGRect(x: rightX, y: rowYs[1], width: rightRail, height: height)
+        enterKey?.frame = CGRect(x: rightX, y: rowYs[2], width: rightRail, height: tallHeight)
+        for key in [emojiKey, symbolsKey, languageKey, deleteKey, dakutenKey, spaceKey, enterKey, switchKey] {
             guard let key else { continue }
             key.titleLabel?.font = .systemFont(ofSize: min(20, max(14, height * 0.36)))
             key.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: height * 0.42, weight: .semibold), forImageIn: .normal)
             fixShadow(key)
         }
         if let dakutenKey { dakutenKey.titleLabel?.font = .systemFont(ofSize: min(16, max(12, height * 0.3))) }
+        if let symbolsKey { symbolsKey.titleLabel?.font = .systemFont(ofSize: min(17, max(13, height * 0.32))) }
     }
 
     private func fixShadow(_ key: KeyboardKey) {
@@ -336,9 +348,9 @@ final class FlickCanvas: UIView, KeyboardSurface {
         bringSubviewToFront(popup)
         let cell = key.bounds.size
         let size = CGSize(width: cell.width * 3, height: cell.height * 3)
-        var origin = CGPoint(x: key.frame.midX - size.width / 2, y: key.frame.minY - size.height - 4)
+        // 純正と同じく、十字の中央セルが押したキーの真上に重なる位置に出す。
+        var origin = CGPoint(x: key.frame.midX - size.width / 2, y: key.frame.minY - cell.height)
         origin.x = min(max(2, origin.x), max(2, bounds.width - size.width - 2))
-        if origin.y < -size.height - 8 { origin.y = key.frame.minY - size.height - 4 }
         popup.frame = CGRect(origin: origin, size: size)
         let positions: [FlickDirection: CGRect] = [
             .center: CGRect(x: cell.width, y: cell.height, width: cell.width, height: cell.height),
