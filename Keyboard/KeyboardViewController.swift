@@ -91,8 +91,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
     /// 下にずれて最下段が切れる不具合の修正）。
     private let candidateStripHeight: CGFloat = 34
-    /// 現在の状態で帯が占める高さ（非表示なら 0）。
-    private var currentCandidateHeight: CGFloat { showsCandidateStrip ? candidateStripHeight : 0 }
+    /// 帯が占める高さ。2026-11-26 のユーザー決定で、候補バーは候補の
+    /// 有無によらず両面とも常時表示とし、高さを固定する（入力中に
+    /// レイアウトが変動しないようにする。フリック面の余白確保と同方針）。
+    /// 候補が無いとき帯は空欄になるだけで、枠そのものは出し続ける。
+    private var currentCandidateHeight: CGFloat { candidateStripHeight }
     // build 48: candidateStack コンテナは廃止。候補キーは候補帯コンテナ
     // （build 58 で candidateStrip）の直下に直接置く
     // (詳細は renderState の配置ブロックのコメント参照)。
@@ -124,10 +127,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var packExtraValues: Set<String> = []
     private var pendingAutocorrectUndo: (original: String, corrected: String, delimiter: String)?
     private var activeDocument: KeyboardDocument { documentOverride ?? ProxyDocument(textDocumentProxy) }
-    private var showsCandidateStrip: Bool {
-        !bracketCandidates.isEmpty
-            || (isJapanese ? !composition.isEmpty : (!symbols && !englishSuggestions.isEmpty))
-    }
     private var captureDocument: BufferDocument?
     private var isCapturing: Bool { captureDocument != nil }
     /// 編集中の定型文の位置（新規登録なら nil）。
@@ -689,7 +688,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             view.bringSubviewToFront(perfLabel)
             updatePerfOverlay()
         }
-        candidateStrip.isHidden = candidateHeight == 0
+        // 候補バーは常時表示 (candidateHeight は常に candidateStripHeight)。
+        candidateStrip.isHidden = false
         candidateStrip.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
         let canvasFrame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         canvas.frame = canvasFrame
@@ -1559,15 +1559,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             PerfProbe.shared.measure("show") { editor.show(display, caret: caret) }
         }
         activeSurface.setComposing(!composition.isEmpty)
-        let shouldHideCandidates = !showsCandidateStrip
-        if candidateStrip.isHidden != shouldHideCandidates {
-            view.setNeedsLayout()
-            // build 50: 要求高さはレイアウトパスの完了を待たず、帯の
-            // 表示/非表示が切り替わったこの場で新しい合計高さに更新する。
-            // 帯が消えたのに要求高さだけが前の値に残ると、実フレームが
-            // 帯の分だけずれて最下段が画面下に切れる。
-            updateRequestedHeight()
-        }
+        // 候補バーは常時表示 (高さ固定) のため、候補の有無で帯の
+        // 表示・高さは変わらない。帯まわりの高さ交渉は不要になった。
         let stripStamp = PerfProbe.stamp()
         let stripCount = !bracketCandidates.isEmpty ? bracketCandidates.count
             : (isJapanese ? candidates.count : englishSuggestions.count)
