@@ -285,12 +285,39 @@ final class DictionaryPacksTests: XCTestCase {
         XCTAssertEqual(predicted.last, "表記9")
     }
 
-    func testMergingPacksAppendsPredictedAtEnd() {
-        // 予測は末尾にのみ足し、本体候補・完全一致と重なれば作らない
-        // (予測X は本体候補に既にあるので末尾へは出直さない)。
+    func testMergingPacksExcludesPredictions() {
+        // 二段構成 (build 88): 上段の統合に予測は混ぜない。統合結果は
+        // build 86 までの構成 (SNS 先頭固定 + 完全一致の先頭直後差し込み)
+        // そのままで、予測専用の表記は一切現れない。
         let merged = DictionaryPackLibrary.mergingPacks(
-            into: ["変換A", "予測X", "変換B"], pinned: ["リプ"], appended: ["面取り"],
-            predicted: ["予測X", "予測Y", "変換A"])
-        XCTAssertEqual(merged, ["リプ", "変換A", "面取り", "予測X", "変換B", "予測Y"])
+            into: ["変換A", "変換B"], pinned: ["リプ"], appended: ["面取り"])
+        XCTAssertEqual(merged, ["リプ", "変換A", "面取り", "変換B"])
+        XCTAssertFalse(merged.contains("予測Y"))
+    }
+
+    func testTwoTierDataSourcesAreDisjoint() {
+        // 下段のデータソース (predictedSurfaces) が返す集合は、上段の
+        // 統合結果には現れない (二段の分離)。完全一致の表記は上段に
+        // だけ出て、下段では繰り返さない。
+        let library = DictionaryPackLibrary { id in
+            switch id {
+            case .sns: return DictionaryPackData.parse(Data("すしや\tSNS寿司屋\n".utf8))
+            case .industrial: return DictionaryPackData.parse(Data("すしや\t寿司\nすしやたい\t寿司屋台\n".utf8))
+            case .anime: return DictionaryPackData.parse(Data("すしやまい\t寿司山\n".utf8))
+            default: return DictionaryPackData()
+            }
+        }
+        let store = DictionaryPackStore(defaults: defaults)
+        store.setEnabled(.anime, true)
+        let upper = DictionaryPackLibrary.mergingPacks(
+            into: ["変換A"],
+            pinned: library.pinnedSurfaces(forKana: "すしや", store: store),
+            appended: library.appendedSurfaces(forKana: "すしや", store: store))
+        let lower = library.predictedSurfaces(forKana: "すしや", store: store)
+        XCTAssertEqual(lower, ["寿司屋台", "寿司山"])
+        XCTAssertTrue(Set(upper).isDisjoint(with: lower))
+        XCTAssertFalse(upper.contains("寿司屋台"))
+        // 3文字未満では下段は空 (帯は枠だけ残る)。
+        XCTAssertEqual(library.predictedSurfaces(forKana: "すし", store: store), [])
     }
 }

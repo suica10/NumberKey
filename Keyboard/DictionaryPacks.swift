@@ -251,7 +251,8 @@ final class DictionaryPackLibrary {
     /// 前方一致の予測候補。SNS 以外の有効なパックから、読みが kana で
     /// 始まるエントリの表記を集める (合計10件まで)。完全一致で既に出る
     /// 表記は除く。SNS は完全一致の先頭固定のみで、予測には混ぜない。
-    /// 誤爆を避けるため、呼び出し側は候補列の末尾にのみ置くこと。
+    /// 誤爆を避けるため、本体の候補列には混ぜず、呼び出し側は下段の
+    /// 予測専用帯にのみ置くこと (build 88 の二段構成)。
     func predictedSurfaces(forKana kana: String, store: DictionaryPackStore) -> [String] {
         guard kana.count >= 3 else { return [] }
         let exact = Set(appendedSurfaces(forKana: kana, store: store))
@@ -276,10 +277,11 @@ final class DictionaryPackLibrary {
     /// 同じ流儀)。パック表記が本体候補の下位にあれば引き上げる。
     /// 重複は作らない。この統合は変換・リランクの後段でだけ行うので、
     /// SNS が並び替えで後ろに送られることはない。
-    /// predicted (前方一致の予測) は推測の度合いが最も弱いので、統合済みの
-    /// 列の末尾にだけ足す。本体候補や完全一致と重なる表記は作らない。
-    static func mergingPacks(into candidates: [String], pinned: [String], appended: [String],
-                             predicted: [String] = []) -> [String] {
+    /// 前方一致の予測はこの統合には含めない (build 87 では末尾に足して
+    /// いたが、末尾では誰の目にも入らず機能が死ぬため、build 88 で
+    /// 下段の予測専用帯に分離した。predictedSurfaces が返す集合が
+    /// そのまま下段の表示内容になる)。
+    static func mergingPacks(into candidates: [String], pinned: [String], appended: [String]) -> [String] {
         var result: [String] = []
         for surface in pinned where !result.contains(surface) { result.append(surface) }
         var rest: [String] = []
@@ -296,7 +298,6 @@ final class DictionaryPackLibrary {
         } else {
             for surface in appended where !result.contains(surface) { result.append(surface) }
         }
-        for surface in predicted where !result.contains(surface) { result.append(surface) }
         return result
     }
 

@@ -81,6 +81,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var stripDisplayLink: CADisplayLink?
     /// 減速の前フレーム時刻（dt 算出用）。
     private var stripLastFrameTime: CFTimeInterval = 0
+    /// 下段の予測専用帯 (build 88 の二段構成)。候補バー (上段) の直下に
+    /// 置き、辞書パックの前方一致予測だけを表示する。構造は上段と同じ
+    /// プレーンな UIView + 手動フレーム + パン自前実装で、帯の中に
+    /// Auto Layout は持ち込まない (上段と同じ理由)。
+    private let predictionStrip = UIView()
+    /// 予測帯の横スクロール用パン認識器。
+    private let predictionPan = UIPanGestureRecognizer()
+    /// 予測帯のスクロールオフセット（pt、0 = 左端）。
+    private var predictionContentOffsetX: CGFloat = 0
+    /// 予測コンテンツの総幅（renderPredictionStrip の配置で更新）。
+    private var predictionContentWidth: CGFloat = 0
+    /// パン開始時点のオフセット（ドラッグ量の基準）。
+    private var predictionPanBase: CGFloat = 0
+    /// 予測帯スクロールの慣性減速（上段と同じ指数減衰方式）。
+    private var predictionDecelVelocity: CGFloat = 0
+    private var predictionDisplayLink: CADisplayLink?
+    private var predictionLastFrameTime: CFTimeInterval = 0
+    /// 予測帯のキー（上段の candidateKeys と対）。
+    private var predictionKeys: [CandidateKey] = []
+    /// 予測キーへ最後に適用したパレット。
+    private var predictionPaletteApplied: KeyboardPalette?
+    /// 前回描画した予測の値（変わったときだけオフセットを左端に戻す）。
+    private var lastPredictionValues: [String] = []
+    /// 下段に出す前方一致予測 (insertPackExtras が変換完了のたびに更新)。
+    /// 上段の候補列には混ぜない。空なら帯は空欄になるだけで枠は残る。
+    private var predictedCandidates: [String] = []
     /// 高さ交渉のための Auto Layout 足場（不可視の sizer view）。
     /// build 53 で候補帯内に置いたが、ビルド56でルート直下へ移した。
     /// 足場は帯の外でルート階層の Auto Layout 参加だけを担い、帯の
@@ -91,11 +117,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 同じ計算結果から決める（build 50: 帯の表示/非表示で全体が帯の分だけ
     /// 下にずれて最下段が切れる不具合の修正）。
     private let candidateStripHeight: CGFloat = 34
+    /// 下段の予測帯の高さ (build 88)。上段と同じクラスに収める。
+    private let predictionStripHeight: CGFloat = 30
     /// 帯が占める高さ。2026-11-26 のユーザー決定で、候補バーは候補の
     /// 有無によらず両面とも常時表示とし、高さを固定する（入力中に
     /// レイアウトが変動しないようにする。フリック面の余白確保と同方針）。
     /// 候補が無いとき帯は空欄になるだけで、枠そのものは出し続ける。
-    private var currentCandidateHeight: CGFloat { candidateStripHeight }
+    /// build 88 で下段の予測帯が加わり、日本語モードでは上段+下段の
+    /// 合計を常時予約する (予測の有無で高さが跳ねないようにするため)。
+    /// 英語モードに予測帯は無いので、その分の高さは言語切替のときに
+    /// だけ変わる (入力の途中では変わらない)。
+    private var currentCandidateHeight: CGFloat {
+        candidateStripHeight + (isJapanese ? predictionStripHeight : 0)
+    }
     // build 48: candidateStack コンテナは廃止。候補キーは候補帯コンテナ
     // （build 58 で candidateStrip）の直下に直接置く
     // (詳細は renderState の配置ブロックのコメント参照)。
@@ -236,6 +270,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         candidatePan.cancelsTouchesInView = true
         candidatePan.delegate = self
         candidateStrip.addGestureRecognizer(candidatePan)
+        // 下段の予測帯も上段と同じ素性 (プレーンな UIView + パン自前
+        // 実装)。キーは renderPredictionStrip で帯の直下に直接置く。
+        view.addSubview(predictionStrip)
+        predictionStrip.clipsToBounds = true
+        predictionPan.addTarget(self, action: #selector(handlePredictionPan(_:)))
+        predictionPan.cancelsTouchesInView = true
+        predictionPan.delegate = self
+        predictionStrip.addGestureRecognizer(predictionPan)
         // build 56/58: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
         // 候補帯の中ではなくルート直下に置く（candidateSizer のコメント
         // 参照）。帯の高さに連動させるため height は candidateStrip の
@@ -688,9 +730,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             view.bringSubviewToFront(perfLabel)
             updatePerfOverlay()
         }
-        // 候補バーは常時表示 (candidateHeight は常に candidateStripHeight)。
+        // 候補バーは二段とも常時表示 (candidateHeight は上段+下段の合計。
+        // 日本語モードでは予測の有無によらず下段の枠も予約する)。
+        // 英語モードでは下段が無く、その分は candidateHeight に含まれない。
         candidateStrip.isHidden = false
-        candidateStrip.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateHeight)
+        candidateStrip.frame = CGRect(x: 0, y: topHeight + perfHeight, width: width, height: candidateStripHeight)
+        let predictionHeight = candidateHeight - candidateStripHeight
+        predictionStrip.isHidden = !isJapanese
+        predictionStrip.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateStripHeight,
+                                       width: width, height: predictionHeight)
         let canvasFrame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         canvas.frame = canvasFrame
         flickCanvas.frame = canvasFrame
@@ -1228,6 +1276,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard settings.japanese != japanese else { return }
         syncHostChange(); commitCurrent()
         settings.japanese = japanese
+        predictedCandidates = []
         shifted = false; capsLocked = false; symbols = false; bracketCandidates = []
         rebuildCanvas()
     }
@@ -1408,7 +1457,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 空のときの「基本候補で先埋め」もしない: 単語の打ち始めに [かな, カナ]
         // が一瞬出てから本候補に総入れ替えされる二度表示が、ちらつきの主因。
         // 変換は約5msで返るので、先埋めなしでも空白は知覚できない。
-        if snapshot.isEmpty { candidates = []; englishExtraValues = []; packExtraValues = [] }
+        if snapshot.isEmpty { candidates = []; englishExtraValues = []; packExtraValues = []; predictedCandidates = [] }
         conversionTask?.cancel()
         renderState()
         PerfProbe.shared.record("input", since: inputStamp)
@@ -1514,34 +1563,40 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private func showEnglishWordCandidates() {
         revision += 1; conversionTask?.cancel()
         let raw = rawRomaji(of: composition)
+        predictedCandidates = []
         candidates = [raw]
         englishExtraValues = [raw]
         conversionReady = true
         selected = nil
         renderState()
     }
-    /// 辞書パックの候補を候補列に差し込む。SNS は候補列の先頭に固定し
-    /// (変換・リランクの後段なので並び替えでは動かない)、
+    /// 辞書パックの候補を候補列に差し込む (二段構成, build 88)。
+    /// 上段 (本体の候補列) は build 86 までの構成そのまま: SNS は候補列の
+    /// 先頭に固定し (変換・リランクの後段なので並び替えでは動かない)、
     /// それ以外のパックは先頭候補の直後に差し込む (ユーザーが明示的に
     /// 有効化した専用語彙で、読みが完全一致すれば意図はほぼ確定のため。
     /// 末尾追加だった頃は変換ノイズの後ろに埋もれた)。
-    /// 前方一致の予測 (読みが入力途中のもの) も出すが、部分一致は誤爆
-    /// しやすいので規律を厳しくする: 3文字以上・SNS を除く・完全一致と
-    /// 重なる表記は除く・合計10件まで・候補列の末尾にのみ置く。
-    /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない。
+    /// 前方一致の予測 (読みが入力途中のもの) は上段には混ぜず、下段の
+    /// 予測専用帯 (predictedCandidates) にだけ渡す。build 87 では上段の
+    /// 末尾に足していたが、末尾では目に入らず機能が死ぬための分離。
+    /// 予測の規律は据え置き: 3文字以上・SNS を除く・完全一致と重なる
+    /// 表記は除く・合計10件まで (predictedSurfaces 側で担保)。
+    /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない
+    /// (予測も packExtraValues に入れて学習から外す)。
     private func insertPackExtras(_ list: [String], kana: String) -> [String] {
-        guard isJapanese else { packExtraValues = []; return list }
+        guard isJapanese else { packExtraValues = []; predictedCandidates = []; return list }
         // 辞書パックは有料機能。無効な間は、ON/OFF の設定自体はそのままに
         // 適用だけを止める（購入すれば設定どおりに即戻る）。
-        guard premiumFeaturesEnabled else { packExtraValues = []; return list }
+        guard premiumFeaturesEnabled else { packExtraValues = []; predictedCandidates = []; return list }
         let pinned = dictionaryLibrary.pinnedSurfaces(forKana: kana, store: dictionaryStore)
         let appended = dictionaryLibrary.appendedSurfaces(forKana: kana, store: dictionaryStore)
         let predicted = kana.count >= 3
             ? dictionaryLibrary.predictedSurfaces(forKana: kana, store: dictionaryStore)
             : []
+        predictedCandidates = predicted
         packExtraValues = Set(pinned + appended + predicted)
         return DictionaryPackLibrary.mergingPacks(
-            into: list, pinned: pinned, appended: appended, predicted: predicted)
+            into: list, pinned: pinned, appended: appended)
     }
     /// 変換学習に回してよい候補か。英字そのまま候補と辞書パック候補は回さない。
     private func shouldLearn(_ value: String) -> Bool {
@@ -1676,6 +1731,167 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                 layoutCandidateKeys()
             }
         }
+        renderPredictionStrip()
+    }
+
+    /// 下段の予測キーの文字色。上段の候補文字色を薄めたもので、格下の
+    /// 扱いにする。パレット由来なので、着せ替えで候補文字色を変えれば
+    /// 下段も追随し、テーマ OFF では標準パレットの色になる。
+    private var predictionTextColor: UIColor {
+        currentPalette.candidateText.uiColor.withAlphaComponent(0.55)
+    }
+
+    /// 下段の予測帯を描き直す (build 88)。データは predictedCandidates
+    /// (insertPackExtras が変換完了のたびに差し替える) だけ。予測が
+    /// 無いときはキーが0個になるだけで、帯の枠と高さは残る (常時予約)。
+    /// キーの管理・配置・タップ確定は上段と同じ作法で、確定は候補と
+    /// 同じ経路 (commit) を通り、学習は shouldLearn が packExtraValues
+    /// で弾く (予測は学習対象にしない)。
+    private func renderPredictionStrip() {
+        let values = isJapanese ? predictedCandidates : []
+        while predictionKeys.count > values.count {
+            let key = predictionKeys.removeLast()
+            key.removeFromSuperview()
+        }
+        while predictionKeys.count < values.count {
+            let key = CandidateKey(type: .custom)
+            key.titleLabel?.font = .systemFont(ofSize: 15)
+            key.setTitleColor(predictionTextColor, for: .normal)
+            key.backgroundColor = .clear
+            key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
+            key.layer.cornerRadius = 4
+            key.addTarget(key, action: #selector(CandidateKey.activate), for: .touchUpInside)
+            predictionKeys.append(key)
+            predictionStrip.addSubview(key)
+        }
+        if predictionPaletteApplied != currentPalette {
+            predictionKeys.forEach { key in
+                key.setTitleColor(predictionTextColor, for: .normal)
+            }
+            predictionPaletteApplied = currentPalette
+        }
+        let displayedRevision = revision
+        for (index, key) in predictionKeys.enumerated() {
+            let value = values[index]
+            let valueChanged = key.renderedValue != value
+            if valueChanged {
+                key.setTitle(value, for: .normal)
+                key.accessibilityIdentifier = "prediction." + value
+                key.renderedValue = value
+            }
+            if key.actionRevision != displayedRevision || valueChanged {
+                key.onSelect = { [weak self] in
+                    guard let self else { return }
+                    // 変換待ちの間に残っている前回予測は、確定に使わない
+                    // (上段の候補と同じガード)。
+                    guard self.conversionReady else { return }
+                    self.syncHostChange()
+                    guard self.revision == displayedRevision else { return }
+                    self.commit(value, learn: self.shouldLearn(value))
+                }
+                key.actionRevision = displayedRevision
+            }
+        }
+        // 予測リストが変わったら帯を左端に戻して必ず左から見せる
+        // (上段と同じ扱い。慣性減速も止める)。
+        if values != lastPredictionValues {
+            lastPredictionValues = values
+            stopPredictionDeceleration()
+            predictionContentOffsetX = 0
+        }
+        layoutPredictionKeys()
+    }
+
+    /// 予測キーを手動フレームで配置する (上段の layoutCandidateKeys と
+    /// 同じ計算: 左端 6pt・間隔 8pt・右端余白 6pt)。
+    private func layoutPredictionKeys() {
+        var widths: [CGFloat] = []
+        widths.reserveCapacity(predictionKeys.count)
+        var contentWidth: CGFloat = 0
+        for key in predictionKeys {
+            var w = key.intrinsicContentSize.width
+            if w <= 0 {
+                w = key.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude,
+                                            height: predictionStripHeight)).width
+            }
+            widths.append(w)
+            contentWidth += w + 8
+        }
+        predictionContentWidth = predictionKeys.isEmpty ? 0 : contentWidth - 8 + 12
+        predictionContentOffsetX = clampedPredictionOffset(predictionContentOffsetX)
+        var x: CGFloat = 6 - predictionContentOffsetX
+        for (index, key) in predictionKeys.enumerated() {
+            key.frame = CGRect(x: x, y: 0, width: widths[index], height: predictionStripHeight)
+            x += widths[index] + 8
+        }
+    }
+
+    /// 予測帯のスクロールオフセットの許容範囲へのクランプ。
+    private func clampedPredictionOffset(_ offset: CGFloat) -> CGFloat {
+        let maxOffset = max(0, predictionContentWidth - predictionStrip.bounds.width)
+        return min(max(0, offset), maxOffset)
+    }
+
+    /// オフセットを変えて予測キーを付け直す（パン中の再配置）。
+    private func setPredictionOffset(_ offset: CGFloat) {
+        let clamped = clampedPredictionOffset(offset)
+        guard clamped != predictionContentOffsetX else { return }
+        predictionContentOffsetX = clamped
+        layoutPredictionKeys()
+    }
+
+    /// 予測帯の横スクロール（上段と同じパン自前実装 + 慣性減速）。
+    @objc private func handlePredictionPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            stopPredictionDeceleration()
+            predictionPanBase = predictionContentOffsetX
+        case .changed:
+            setPredictionOffset(predictionPanBase - gesture.translation(in: predictionStrip).x)
+        case .ended, .cancelled:
+            startPredictionDeceleration(offsetVelocity: -gesture.velocity(in: predictionStrip).x)
+        default:
+            break
+        }
+    }
+
+    /// 予測帯の慣性減速の開始（上段と同じ指数減衰 ×0.998/ms）。
+    private func startPredictionDeceleration(offsetVelocity: CGFloat) {
+        stopPredictionDeceleration()
+        guard abs(offsetVelocity) > 30,
+              max(0, predictionContentWidth - predictionStrip.bounds.width) > 0 else { return }
+        predictionDecelVelocity = offsetVelocity
+        predictionLastFrameTime = 0
+        let link = CADisplayLink(target: self, selector: #selector(stepPredictionDeceleration(_:)))
+        link.add(to: .main, forMode: .common)
+        predictionDisplayLink = link
+    }
+
+    /// 予測帯の慣性減速の停止。
+    private func stopPredictionDeceleration() {
+        predictionDisplayLink?.invalidate()
+        predictionDisplayLink = nil
+        predictionDecelVelocity = 0
+    }
+
+    /// 予測帯の減速の1フレーム分（上段と同じ計算）。
+    @objc private func stepPredictionDeceleration(_ link: CADisplayLink) {
+        let dt: CFTimeInterval
+        if predictionLastFrameTime > 0 {
+            dt = min(link.timestamp - predictionLastFrameTime, 0.05)
+        } else {
+            dt = link.duration
+        }
+        predictionLastFrameTime = link.timestamp
+        guard dt > 0 else { return }
+        let next = predictionContentOffsetX + predictionDecelVelocity * CGFloat(dt)
+        let clamped = clampedPredictionOffset(next)
+        setPredictionOffset(next)
+        if clamped != next || abs(predictionDecelVelocity) < 5 {
+            stopPredictionDeceleration()
+            return
+        }
+        predictionDecelVelocity *= CGFloat(pow(0.998, dt * 1000))
     }
 
     /// 候補キーを手動フレームで配置する（build 58）。キーは帯
@@ -1791,9 +2007,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 候補帯のパンは横方向のドラッグだけ開始する（旧 UIScrollView の
     /// directional lock 相当。縦ドラッグは帯では扱わない）。
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === candidatePan else { return true }
-        let velocity = candidatePan.velocity(in: candidateStrip)
-        return abs(velocity.x) > abs(velocity.y)
+        if gestureRecognizer === candidatePan {
+            let velocity = candidatePan.velocity(in: candidateStrip)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+        if gestureRecognizer === predictionPan {
+            let velocity = predictionPan.velocity(in: predictionStrip)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+        return true
     }
 
     /// 計測オーバーレイの表示を最新の集計に更新する（開発段階のみ）。
@@ -1926,6 +2148,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private func resetComposition() {
         revision += 1; conversionTask?.cancel()
         englishWordMode = false
+        predictedCandidates = []
         composition = ComposingText(); candidates = []; selected = nil
         conversionReady = false; waitingSpaceCount = 0
         if isViewLoaded { renderState(updateMarked: false) }
