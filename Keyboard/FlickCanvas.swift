@@ -271,7 +271,9 @@ final class FlickCanvas: UIView, KeyboardSurface {
     private func rowGap(width: CGFloat) -> CGFloat { width * 18 / 1206 }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
-        rowHeight(width: width) * 4 + rowGap(width: width) * 3 + 7
+        // グリッドの上下にポップアップのセル 1 つ分の余白を確保する
+        // (FlickPopupGeometry 参照)。QWERTY 面の高さには影響しない。
+        FlickPopupGeometry.preferredHeight(rowHeight: rowHeight(width: width), rowGap: rowGap(width: width))
     }
 
     override func layoutSubviews() {
@@ -288,7 +290,10 @@ final class FlickCanvas: UIView, KeyboardSurface {
                                edge + leftRail + 2 * unit + 3 * gap]
         let rightX = edge + leftRail + 3 * unit + 4 * gap
         var rowYs: [CGFloat] = []
-        var nextY: CGFloat = 3
+        // グリッドの開始位置は上端からセル 1 つ分 (height) 下げる。これが
+        // 最上段キーのポップアップ上セルの居場所になる (下端側の余白は
+        // preferredHeight の側で確保する)。
+        var nextY: CGFloat = height
         for _ in 0..<4 { rowYs.append(nextY); nextY += height + vGap }
         for (index, key) in flickKeys.enumerated() {
             if index < 9 {
@@ -354,9 +359,11 @@ final class FlickCanvas: UIView, KeyboardSurface {
         bringSubviewToFront(popup)
         let cell = key.bounds.size
         let size = CGSize(width: cell.width * 3, height: cell.height * 3)
-        // 純正と同じく、十字の中央セルが押したキーの真上に重なる位置に出す。
-        var origin = CGPoint(x: key.frame.midX - size.width / 2, y: key.frame.minY - cell.height)
-        origin.x = min(max(2, origin.x), max(2, bounds.width - size.width - 2))
+        // 純正と同じく、十字の中央セルが押したキーの真上に重なる位置に
+        // 出す。上下はグリッド前後の余白 (preferredHeight / レイアウトの
+        // 開始位置) で収まる設計で、FlickPopupGeometry 側のクランプは
+        // 横方向の端と想定外寸法へのガードとして残す。
+        let origin = FlickPopupGeometry.popupOrigin(keyFrame: key.frame, canvasSize: bounds.size, cellSize: cell)
         popup.frame = CGRect(origin: origin, size: size)
         let positions: [FlickDirection: CGRect] = [
             .center: CGRect(x: cell.width, y: cell.height, width: cell.width, height: cell.height),
