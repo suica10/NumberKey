@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 @main
 struct NumberKeyApp: App {
@@ -9,6 +11,10 @@ struct NumberKeyApp: App {
 struct SettingsView: View {
     @State private var layout = KeyboardSettings().snapshot
     @State private var sample = ""
+    @Environment(\.colorScheme) private var colorScheme
+    /// 着せ替えの背景画像ピッカーの選択と、プレビュー用の読み込み済み画像。
+    @State private var backgroundPhotoItem: PhotosPickerItem?
+    @State private var backgroundPreviewImage: UIImage?
     @State private var packEnabled: [DictionaryPackID: Bool] = [:]
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
@@ -67,6 +73,60 @@ struct SettingsView: View {
                         }
                     }
                     Toggle("日本語ローマ字入力で開始", isOn: $layout.japanese)
+                }
+                Section("着せ替え") {
+                    Toggle("着せ替えを使う", isOn: $layout.customizationEnabled)
+                    Text("オフのときは「配色」の設定どおりに表示します。オンにすると、背景画像と下で選んだ色がキーボードに適用されます。色を選んでいない要素は、配色どおりの色のままです。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if layout.customizationEnabled {
+                        appearancePreview
+                        PhotosPicker(selection: $backgroundPhotoItem, matching: .images, photoLibrary: .shared()) {
+                            Label("背景画像を選ぶ", systemImage: "photo")
+                        }
+                        if layout.customAppearance.backgroundImageFileName != nil {
+                            Picker("画像の表示", selection: $layout.customAppearance.backgroundImageFillsScreen) {
+                                Text("全面に広げる").tag(true)
+                                Text("全体を表示").tag(false)
+                            }
+                            HStack {
+                                Text("画像に背景色を重ねる")
+                                Slider(value: $layout.customAppearance.backgroundImageDim,
+                                       in: CustomAppearance.backgroundImageDimRange)
+                            }
+                            Button("背景画像を削除", role: .destructive) {
+                                if let name = layout.customAppearance.backgroundImageFileName {
+                                    KeyboardBackgroundImageStore.remove(fileName: name)
+                                }
+                                layout.customAppearance.backgroundImageFileName = nil
+                                backgroundPreviewImage = nil
+                            }
+                        }
+                        colorRow("背景", \.background, standard: standardPalette.background)
+                        colorRow("キーの面", \.keyFace, standard: standardPalette.keyFace)
+                        colorRow("キーを押したとき", \.keyPressed, standard: standardPalette.keyPressed)
+                        colorRow("キーの文字", \.keyText, standard: standardPalette.keyText)
+                        colorRow("候補の文字", \.candidateText, standard: standardPalette.candidateText)
+                        colorRow("候補の選択背景", \.candidateSelectedBackground, standard: standardPalette.candidateSelectedBackground)
+                        colorRow("パネルの背景", \.panelBackground, standard: standardPalette.panelBackground)
+                        colorRow("パネルの枠", \.panelBorder, standard: standardPalette.panelBorder)
+                        colorRow("パネルの行", \.panelCardBackground, standard: standardPalette.panelCardBackground)
+                        colorRow("パネルの文字", \.panelText, standard: standardPalette.panelText)
+                        colorRow("フリック選択中の背景", \.popupSelectedBackground, standard: standardPalette.popupSelectedBackground)
+                        colorRow("フリック選択中の文字", \.popupSelectedText, standard: standardPalette.popupSelectedText)
+                        Button("色をすべてデフォルトに戻す") { layout.customAppearance.resetColors() }
+                    }
+                }
+                .onChange(of: backgroundPhotoItem) { _, item in
+                    guard let item else { return }
+                    Task {
+                        defer { backgroundPhotoItem = nil }
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data),
+                           let name = KeyboardBackgroundImageStore.save(image) {
+                            layout.customAppearance.backgroundImageFileName = name
+                            backgroundPreviewImage = KeyboardBackgroundImageStore.loadImage(fileName: name)
+                        }
+                    }
                 }
                 Section("辞書パック") {
                     ForEach(DictionaryPackID.allCases, id: \.rawValue) { id in
@@ -143,10 +203,86 @@ struct SettingsView: View {
             }
             .onAppear {
                 keyboardActivated = KeyboardSettings.lastActivatedAt != nil
+                if backgroundPreviewImage == nil, let name = layout.customAppearance.backgroundImageFileName {
+                    backgroundPreviewImage = KeyboardBackgroundImageStore.loadImage(fileName: name)
+                }
                 if !setupGuideSeen { showSetupGuide = true }
             }
         }
     }
+    /// このアプリの表示モードに対する現行パレット (ピッカーの初期値用)。
+    private var standardPalette: KeyboardPalette { KeyboardPalette.standard(dark: colorScheme == .dark) }
+    /// 着せ替えを反映した実効パレット (プレビュー用)。
+    private var effectivePalette: KeyboardPalette { layout.resolvedPalette(dark: colorScheme == .dark) }
+
+    /// 着せ替えのミニプレビュー。背景画像＋背景色の重ねの上に、候補と
+    /// キーのサンプルを実効パレットで描く。
+    private var appearancePreview: some View {
+        let palette = effectivePalette
+        return ZStack {
+            if let image = backgroundPreviewImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: layout.customAppearance.backgroundImageFillsScreen ? .fill : .fit)
+                Color(uiColor: palette.background.uiColor)
+                    .opacity(layout.customAppearance.backgroundImageDim)
+            } else {
+                Color(uiColor: palette.background.uiColor)
+            }
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("候補")
+                        .foregroundStyle(Color(uiColor: palette.candidateText.uiColor))
+                    Text("選択中")
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Color(uiColor: palette.candidateSelectedBackground.uiColor))
+                        .foregroundStyle(Color(uiColor: palette.candidateText.uiColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    Spacer()
+                }
+                .font(.system(size: 14))
+                HStack(spacing: 5) {
+                    ForEach(["Q", "W", "E", "R", "T"], id: \.self) { character in
+                        Text(character)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color(uiColor: palette.keyFace.uiColor))
+                            .foregroundStyle(Color(uiColor: palette.keyText.uiColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+                .font(.system(size: 15))
+            }
+            .padding(8)
+        }
+        .frame(height: 96)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// 要素ごとの色ピッカー行。未ピックの要素は現行パレットの色を初期値
+    /// として見せ、ピック済みの要素にはデフォルトへ戻すボタンを出す。
+    private func colorRow(_ title: String, _ keyPath: WritableKeyPath<CustomAppearance, KeyboardColor?>,
+                          standard: KeyboardColor) -> some View {
+        HStack {
+            ColorPicker(title, selection: Binding(
+                get: { (layout.customAppearance[keyPath: keyPath] ?? standard).cgColor },
+                set: { newValue in
+                    if let picked = KeyboardColor(cgColor: newValue) {
+                        layout.customAppearance[keyPath: keyPath] = picked
+                    }
+                }), supportsOpacity: true)
+            if layout.customAppearance[keyPath: keyPath] != nil {
+                Button {
+                    layout.customAppearance[keyPath: keyPath] = nil
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("\(title)をデフォルトに戻す")
+            }
+        }
+    }
+
     @ViewBuilder
     private var purchaseButtons: some View {
         Button {

@@ -39,6 +39,7 @@ targets:
     sources:
       - App
       - path: Keyboard/KeyboardSettings.swift
+      - path: Keyboard/KeyboardAppearance.swift
       - path: Keyboard/PurchaseState.swift
       - path: Keyboard/DictionaryPacks.swift
     settings:

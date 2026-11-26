@@ -41,15 +41,21 @@ final class KeyboardCanvas: UIView {
     private var symbols = false
     private var japaneseMode = true
     private var dark: Bool { settings.theme == 2 || (settings.theme == 0 && traitCollection.userInterfaceStyle != .light) }
-    private var keyColor: UIColor { dark ? UIColor(white: 0.38, alpha: 1) : .white }
+    /// 実効パレット (configure で設定から解決する)。着せ替え OFF では
+    /// 現行色と一致する standard になる。
+    private var palette = KeyboardPalette.standard(dark: true)
+    private var keyColor: UIColor { palette.keyFace.uiColor }
 
     func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, japanese: Bool) {
         self.settings = settings; self.shifted = shifted
         self.symbols = symbols; self.japaneseMode = japanese
+        palette = settings.resolvedPalette(dark: dark)
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; characterRows = []; bottom = []
         lastLayoutFont = -1  // キーを作り直したのでフォントを当て直させる
-        backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
+        // 背景画像は VC のルート側に敷く。画像使用時はキャンバスを透明に
+        // してルートの画像を見せ、使わないときは従来どおりパレット背景。
+        backgroundColor = settings.usesBackgroundImage ? .clear : palette.background.uiColor
         if symbols {
             // 記号は1画面に統合した (旧2ページ制は廃止)。[ ] { } は専用
             // キーを置かず、( ) キー入力直後の変換候補から選ぶ。残りの
@@ -148,10 +154,10 @@ final class KeyboardCanvas: UIView {
     private func makeKey(_ title: String, commitOnDown: Bool = false, action: (() -> Void)?) -> KeyboardKey {
         let key = KeyboardKey(type: .custom)
         key.setTitle(title, for: .normal)
-        key.setTitleColor(dark ? .white : .black, for: .normal)
-        key.tintColor = dark ? .white : .black
+        key.setTitleColor(palette.keyText.uiColor, for: .normal)
+        key.tintColor = palette.keyText.uiColor
         key.normalColor = keyColor
-        key.pressedColor = dark ? UIColor(white: 0.56, alpha: 1) : UIColor(white: 0.92, alpha: 1)
+        key.pressedColor = palette.keyPressed.uiColor
         key.backgroundColor = key.normalColor
         key.layer.cornerRadius = 5
         key.layer.shadowColor = UIColor.black.cgColor
@@ -315,7 +321,7 @@ final class KeyboardCanvas: UIView {
         label.text = key.title(for: .normal)
         label.textAlignment = .center
         label.font = .systemFont(ofSize: 32)
-        label.textColor = dark ? .white : .black
+        label.textColor = palette.keyText.uiColor
         label.backgroundColor = keyColor
         label.layer.cornerRadius = 8
         label.layer.masksToBounds = true

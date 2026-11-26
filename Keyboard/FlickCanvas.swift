@@ -50,7 +50,8 @@ private final class FlickKey: UIView {
     var row: FlickRow
     var normalColor: UIColor = .darkGray
     var pressedColor: UIColor = .gray
-    var dark = true
+    /// ラベルの文字色 (実効パレットのキー文字色を configure で受け取る)。
+    var textColor: UIColor = .white
     var onPreview: ((FlickKey, FlickDirection) -> Void)?
     var onCommit: ((String) -> Void)?
     var onEnd: (() -> Void)?
@@ -82,7 +83,7 @@ private final class FlickKey: UIView {
         super.layoutSubviews()
         label.frame = bounds
         label.font = .systemFont(ofSize: min(30, max(20, bounds.height * 0.52)))
-        label.textColor = dark ? .white : .black
+        label.textColor = textColor
         backgroundColor = startPoint == nil ? normalColor : pressedColor
         if shadowSize != bounds.size {
             shadowSize = bounds.size
@@ -164,7 +165,10 @@ final class FlickCanvas: UIView, KeyboardSurface {
     private var composing = false
 
     private var dark: Bool { settings.theme == 2 || (settings.theme == 0 && traitCollection.userInterfaceStyle != .light) }
-    private var keyColor: UIColor { dark ? UIColor(white: 0.38, alpha: 1) : .white }
+    /// 実効パレット (configure で設定から解決する)。着せ替え OFF では
+    /// 現行色と一致する standard になる。
+    private var palette = KeyboardPalette.standard(dark: true)
+    private var keyColor: UIColor { palette.keyFace.uiColor }
 
     /// 純正の行割当。行ごとに [中央, 左, 上, 右, 下]。
     private static let rows: [FlickRow] = [
@@ -183,15 +187,17 @@ final class FlickCanvas: UIView, KeyboardSurface {
 
     func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, japanese: Bool) {
         self.settings = settings
+        palette = settings.resolvedPalette(dark: dark)
         subviews.forEach { $0.removeFromSuperview() }
         popup = nil; popupCells = [:]; flickKeys = []
-        backgroundColor = dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.82, alpha: 1)
+        // 背景画像は VC のルート側に敷く (KeyboardCanvas と同じ作法)。
+        backgroundColor = settings.usesBackgroundImage ? .clear : palette.background.uiColor
         for (index, row) in Self.rows.enumerated() {
             // 記号キーの表示ラベルは純正どおり「、。？！」。
             let key = FlickKey(row: row, displayLabel: index == Self.rows.count - 1 ? "、。？！" : nil)
             key.normalColor = keyColor
-            key.pressedColor = dark ? UIColor(white: 0.56, alpha: 1) : UIColor(white: 0.92, alpha: 1)
-            key.dark = dark
+            key.pressedColor = palette.keyPressed.uiColor
+            key.textColor = palette.keyText.uiColor
             key.onPreview = { [weak self] key, direction in self?.showPopup(for: key, direction: direction) }
             key.onCommit = { [weak self] text in self?.onText?(text) }
             key.onEnd = { [weak self] in self?.hidePopup() }
@@ -233,10 +239,10 @@ final class FlickCanvas: UIView, KeyboardSurface {
     private func makeKey(_ title: String, action: (() -> Void)?) -> KeyboardKey {
         let key = KeyboardKey(type: .custom)
         key.setTitle(title, for: .normal)
-        key.setTitleColor(dark ? .white : .black, for: .normal)
-        key.tintColor = dark ? .white : .black
+        key.setTitleColor(palette.keyText.uiColor, for: .normal)
+        key.tintColor = palette.keyText.uiColor
         key.normalColor = keyColor
-        key.pressedColor = dark ? UIColor(white: 0.56, alpha: 1) : UIColor(white: 0.92, alpha: 1)
+        key.pressedColor = palette.keyPressed.uiColor
         key.backgroundColor = key.normalColor
         key.layer.cornerRadius = 5
         key.layer.shadowColor = UIColor.black.cgColor
@@ -364,10 +370,8 @@ final class FlickCanvas: UIView, KeyboardSurface {
             cellLabel.text = key.row.candidate(dir)
             cellLabel.font = .systemFont(ofSize: min(30, max(20, cell.height * 0.52)))
             let selected = dir == direction
-            cellLabel.backgroundColor = selected
-                ? (dark ? UIColor(white: 0.92, alpha: 1) : UIColor(white: 0.35, alpha: 1))
-                : keyColor
-            cellLabel.textColor = selected ? (dark ? .black : .white) : (dark ? .white : .black)
+            cellLabel.backgroundColor = selected ? palette.popupSelectedBackground.uiColor : keyColor
+            cellLabel.textColor = selected ? palette.popupSelectedText.uiColor : palette.keyText.uiColor
         }
     }
 

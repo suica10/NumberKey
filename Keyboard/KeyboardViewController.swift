@@ -99,7 +99,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private var candidateKeys: [CandidateKey] = []
     /// 開発段階の計測オーバーレイ（PerfProbe の集計を候補欄の上に重ねて表示）。
     private let perfLabel = UILabel()
-    private var candidateStyleIsLight: Bool?
+    /// 候補キーへ最後に適用したパレット。変わったときだけ全キーの色を
+    /// 付け直す（renderState は打鍵のたびに走るため、毎回は付け直さない）。
+    private var candidatePaletteApplied: KeyboardPalette?
+    /// 着せ替えの実効パレット（rebuildCanvas のたびに設定から解決する）。
+    /// OFF では現行色と一致する standard になる。
+    private var currentPalette = KeyboardPalette.standard(dark: true)
+    /// 背景画像（着せ替え）の表示先。ルート直下に敷き、その上に重ね
+    /// ビュー（背景色のスクリム）を置いてキー文字の読みやすさを調整する。
+    /// キャンバス側は画像使用時に透明になり、この画像が全面に見える。
+    private let backgroundImageView = UIImageView()
+    private let backgroundScrimView = UIView()
+    /// 読み込み済みの背景画像のファイル名（同じ画像を再読込しないため）。
+    private var loadedBackgroundImageName: String?
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
     private let clipboardStore = ClipboardHistoryStore()
@@ -181,6 +193,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // のコメント参照）。
     override func viewDidLoad() {
         super.viewDidLoad()
+        // 着せ替えの背景画像は一番下に敷く。以後に追加される帯・パネル・
+        // キャンバスはすべてこの上に載る。画像とスクリムは操作を受けない。
+        backgroundImageView.clipsToBounds = true
+        backgroundImageView.isUserInteractionEnabled = false
+        backgroundImageView.isHidden = true
+        view.addSubview(backgroundImageView)
+        backgroundScrimView.isUserInteractionEnabled = false
+        backgroundScrimView.isHidden = true
+        view.addSubview(backgroundScrimView)
         // 変換時間の計測は PerfProbe に集約する (ConversionService 側のコメント参照)。
         ConversionService.perfSink = { name, ms in PerfProbe.shared.recordElapsed(name, ms: ms) }
         KeyboardSettings.migrateLegacyExtensionPreferences()
@@ -468,6 +489,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             emojiStack.widthAnchor.constraint(equalTo: emojiScroll.frameLayoutGuide.widthAnchor)
         ])
         emojiPanel.addSubview(emojiScroll)
+        // 組み立て直後は現在の着せ替え設定でタイトル色を合わせておく
+        // (rebuildCanvas 経由の refreshAppearance はパネル未構築だと素通りする)。
+        applyPanelTextColors()
     }
     private var lastAppearanceSnapshot: LayoutSettings?
     private var lastAppearanceJapanese: Bool?
@@ -588,15 +612,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let keysHeight = metrics.keysHeight
         let candidateHeight = metrics.candidateHeight
         updateRequestedHeight()
+        // 背景画像とスクリムはキーボード全面に敷く。
+        if !backgroundImageView.isHidden {
+            backgroundImageView.frame = view.bounds
+            backgroundScrimView.frame = view.bounds
+        }
         // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
         // パネル高さは layoutMetrics で計算済み（ここでは配置だけを行う）。
         let capturePanelHeight = metrics.capturePanelHeight
         capturePanel.isHidden = !isCapturing
         if isCapturing {
-            let isLight = traitCollection.userInterfaceStyle == .light
-            capturePanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
-            capturePanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            capturePanel.backgroundColor = currentPalette.panelBackground.uiColor
+            capturePanel.layer.borderColor = currentPalette.panelBorder.uiColor.cgColor
             capturePanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, capturePanelHeight - 12))
             let panelWidth = capturePanel.bounds.width
             let panelHeight = capturePanel.bounds.height
@@ -607,9 +635,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let phrasePanelHeight = metrics.phrasePanelHeight
         phrasePanel.isHidden = !isPicking
         if isPicking && !isCapturing {
-            let isLight = traitCollection.userInterfaceStyle == .light
-            phrasePanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
-            phrasePanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            phrasePanel.backgroundColor = currentPalette.panelBackground.uiColor
+            phrasePanel.layer.borderColor = currentPalette.panelBorder.uiColor.cgColor
             phrasePanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, phrasePanelHeight - 12))
             let panelWidth = phrasePanel.bounds.width
             let panelHeight = phrasePanel.bounds.height
@@ -626,9 +653,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let clipboardPanelHeight = metrics.clipboardPanelHeight
         clipboardPanel.isHidden = !isClipboardPicking
         if isClipboardPicking && !isCapturing && !isPicking {
-            let isLight = traitCollection.userInterfaceStyle == .light
-            clipboardPanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
-            clipboardPanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            clipboardPanel.backgroundColor = currentPalette.panelBackground.uiColor
+            clipboardPanel.layer.borderColor = currentPalette.panelBorder.uiColor.cgColor
             clipboardPanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, clipboardPanelHeight - 12))
             let panelWidth = clipboardPanel.bounds.width
             let panelHeight = clipboardPanel.bounds.height
@@ -642,9 +668,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let emojiPanelHeight = metrics.emojiPanelHeight
         emojiPanel.isHidden = !isEmojiPicking
         if isEmojiPicking && !isCapturing && !isPicking && !isClipboardPicking {
-            let isLight = traitCollection.userInterfaceStyle == .light
-            emojiPanel.backgroundColor = isLight ? UIColor(white: 0.97, alpha: 1) : UIColor(white: 0.24, alpha: 1)
-            emojiPanel.layer.borderColor = (isLight ? UIColor(white: 0.72, alpha: 1) : UIColor(white: 0.42, alpha: 1)).cgColor
+            emojiPanel.backgroundColor = currentPalette.panelBackground.uiColor
+            emojiPanel.layer.borderColor = currentPalette.panelBorder.uiColor.cgColor
             emojiPanel.frame = CGRect(x: 8, y: 6, width: max(0, width - 16), height: max(0, emojiPanelHeight - 12))
             let panelWidth = emojiPanel.bounds.width
             let panelHeight = emojiPanel.bounds.height
@@ -687,7 +712,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private func rebuildCanvas() {
         let snapshot = settings.snapshot
         overrideUserInterfaceStyle = snapshot.theme == 1 ? .light : snapshot.theme == 2 ? .dark : .unspecified
-        view.backgroundColor = traitCollection.userInterfaceStyle == .light ? UIColor(white: 0.82, alpha: 1) : UIColor(white: 0.17, alpha: 1)
+        refreshAppearance()
         canvas.isHidden = flickActive
         flickCanvas.isHidden = !flickActive
         activeSurface.configure(snapshot, shifted: shifted, symbols: symbols, japanese: isJapanese)
@@ -695,6 +720,50 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         activeSurface.updateShift(shifted, caps: capsLocked)
         renderState(updateMarked: false)
         view.setNeedsLayout()
+    }
+    /// 実効パレットと背景画像を現在の設定へ合わせる。パネル・候補バーの
+    /// 色は currentPalette を参照して描く側 (レイアウト/renderState) が
+    /// 付けるため、ここではルートの背景と画像まわりだけを確定させる。
+    /// OFF ではパレットは現行色の standard になり、画像は隠れる。
+    private func refreshAppearance() {
+        let snapshot = settings.snapshot
+        // パネル類の従来判定 (== .light か否か) と同じ物差しで明暗を決める。
+        let dark = traitCollection.userInterfaceStyle != .light
+        currentPalette = snapshot.resolvedPalette(dark: dark)
+        view.backgroundColor = currentPalette.background.uiColor
+        if snapshot.usesBackgroundImage, let name = snapshot.customAppearance.backgroundImageFileName {
+            if loadedBackgroundImageName != name {
+                backgroundImageView.image = KeyboardBackgroundImageStore.loadImage(fileName: name)
+                loadedBackgroundImageName = name
+            }
+            backgroundImageView.contentMode = snapshot.customAppearance.backgroundImageFillsScreen
+                ? .scaleAspectFill : .scaleAspectFit
+            backgroundImageView.isHidden = false
+            backgroundScrimView.backgroundColor = currentPalette.background.uiColor
+            backgroundScrimView.alpha = CGFloat(snapshot.customAppearance.backgroundImageDim)
+            backgroundScrimView.isHidden = false
+        } else {
+            backgroundImageView.isHidden = true
+            backgroundScrimView.isHidden = true
+            if loadedBackgroundImageName != nil {
+                loadedBackgroundImageName = nil
+                backgroundImageView.image = nil
+            }
+        }
+        applyPanelTextColors()
+    }
+    /// パネルのタイトル文字色。パネル文字色が明示的にピックされた場合に
+    /// だけその色を付け、未ピック時は従来どおりシステムのラベル色
+    /// (タイトルは動的色、登録タイトルは secondaryLabel) のままにする
+    /// (OFF 等価性を壊さないため)。
+    private func applyPanelTextColors() {
+        guard panelsBuilt else { return }
+        let snapshot = settings.snapshot
+        let explicit = snapshot.customizationEnabled ? snapshot.customAppearance.panelText?.uiColor : nil
+        phraseTitle.textColor = explicit
+        clipboardTitle.textColor = explicit
+        emojiTitle.textColor = explicit
+        captureTitle.textColor = explicit ?? .secondaryLabel
     }
     private func configureMenu(_ button: UIButton) {
         let left = UIAction(title: "カーソルを左へ", image: UIImage(systemName: "arrow.left")) { [weak self] _ in self?.moveCursor(-1) }
@@ -889,7 +958,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             arranged.removeFromSuperview()
         }
         openClipboardRow = nil
-        let isLight = traitCollection.userInterfaceStyle == .light
         func noteRow(_ text: String) {
             clipboardStack.addArrangedSubview(panelNoteView(text))
         }
@@ -908,7 +976,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if items.isEmpty { noteRow("履歴はまだありません") }
         for (index, item) in items.enumerated() {
             let alreadyPhrase = phraseStore.phrases.contains(item)
-            let row = PhraseRowView(phrase: item, isLight: isLight, reorderMode: false, isFirst: false, isLast: false,
+            let row = PhraseRowView(phrase: item, cardColor: currentPalette.panelCardBackground.uiColor,
+                                    textColor: currentPalette.panelText.uiColor,
+                                    reorderMode: false, isFirst: false, isLast: false,
                                     showsRegister: true,
                                     registerTitle: alreadyPhrase ? "登録済" : "定型文",
                                     registerEnabled: !alreadyPhrase)
@@ -944,7 +1014,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             arranged.removeFromSuperview()
         }
         openPhraseRow = nil
-        let isLight = traitCollection.userInterfaceStyle == .light
         // 定型文は有料機能。無効な間は一覧を出さず購入案内だけ出す
         // （登録済みの定型文自体は消さない。購入すればそのまま戻る）。
         guard premiumFeaturesEnabled else {
@@ -959,7 +1028,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             phraseStack.addArrangedSubview(panelNoteView("タップで編集できます"))
         }
         for (index, phrase) in phrases.enumerated() {
-            let row = PhraseRowView(phrase: phrase, isLight: isLight, reorderMode: pickerReorderMode,
+            let row = PhraseRowView(phrase: phrase, cardColor: currentPalette.panelCardBackground.uiColor,
+                                    textColor: currentPalette.panelText.uiColor,
+                                    reorderMode: pickerReorderMode,
                                     isFirst: index == 0, isLast: index == phrases.count - 1)
             row.onTap = { [weak self] in
                 guard let self else { return }
@@ -1050,7 +1121,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 現在位置に「|」を差し込んで点滅させる（色を消すだけなので幅は動かない）。
     private func renderCaptureDisplay() {
         let font = captureDisplay.font ?? .systemFont(ofSize: 20)
-        let baseColor: UIColor = traitCollection.userInterfaceStyle == .light ? .black : .white
+        let baseColor: UIColor = currentPalette.panelText.uiColor
         let cursorColor: UIColor = captureCursorVisible ? .systemBlue : .clear
         if captureText.isEmpty {
             let attr = NSMutableAttributedString(string: "|", attributes: [.font: font, .foregroundColor: cursorColor])
@@ -1479,7 +1550,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 選択中（スペース変換でフォーカスされた候補）のハイライト色。
     /// build 55: 未選択の候補キーは背景なし（文字のみ）に戻した
     /// （build 45 で付けたピル背景はユーザーの指示で撤去）。
-    private var selectedCandidateColor: UIColor { UIColor(white: 0.45, alpha: 0.95) }
+    private var selectedCandidateColor: UIColor { currentPalette.candidateSelectedBackground.uiColor }
     private func renderState(updateMarked: Bool = true) {
         if !isJapanese { refreshEnglishSuggestions() }
         if updateMarked {
@@ -1510,7 +1581,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             // .custom に変更。背景は build 55 でクリアに戻した（文字のみ）。
             let key = CandidateKey(type: .custom)
             key.titleLabel?.font = .systemFont(ofSize: 17)
-            key.setTitleColor(traitCollection.userInterfaceStyle == .light ? .black : .white, for: .normal)
+            key.setTitleColor(currentPalette.candidateText.uiColor, for: .normal)
             key.backgroundColor = .clear
             key.contentEdgeInsets = .init(top: 0, left: 10, bottom: 0, right: 10)
             key.layer.cornerRadius = 4
@@ -1520,15 +1591,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             // 直接置く（build 58 で帯は candidateStrip）。
             candidateStrip.addSubview(key)
         }
-        let isLight = traitCollection.userInterfaceStyle == .light
-        if candidateStyleIsLight != isLight {
+        // パレットが変わったときだけ全キーの色を付け直す (明暗の切替に
+        // 加え、着せ替えの個別色変更にも追随させるため、比較はスタイルで
+        // なく解決済みパレットそのもので行う)。
+        if candidatePaletteApplied != currentPalette {
             candidateKeys.forEach { key in
-                key.setTitleColor(isLight ? .black : .white, for: .normal)
-                if key.isSelectedCandidate != true {
-                    key.backgroundColor = .clear
-                }
+                key.setTitleColor(currentPalette.candidateText.uiColor, for: .normal)
+                key.backgroundColor = key.isSelectedCandidate == true ? selectedCandidateColor : .clear
             }
-            candidateStyleIsLight = isLight
+            candidatePaletteApplied = currentPalette
         }
         let displayedRevision = revision
         for (index, key) in candidateKeys.enumerated() {
@@ -1922,7 +1993,7 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
         Self.deleteWidth + (showsRegister ? Self.registerWidth : 0)
     }
 
-    init(phrase: String, isLight: Bool, reorderMode: Bool, isFirst: Bool, isLast: Bool,
+    init(phrase: String, cardColor: UIColor, textColor: UIColor, reorderMode: Bool, isFirst: Bool, isLast: Bool,
          showsRegister: Bool = false, registerTitle: String = "定型文", registerEnabled: Bool = true) {
         self.showsRegister = showsRegister
         super.init(frame: .zero)
@@ -1951,9 +2022,9 @@ private final class PhraseRowView: UIView, UIGestureRecognizerDelegate {
         card.titleLabel?.lineBreakMode = .byTruncatingTail
         card.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: reorderMode ? 56 : 12)
         card.layer.cornerRadius = 8
-        card.backgroundColor = isLight ? .white : UIColor(white: 0.32, alpha: 1)
+        card.backgroundColor = cardColor
         card.setTitle(phrase, for: .normal)
-        card.setTitleColor(isLight ? .black : .white, for: .normal)
+        card.setTitleColor(textColor, for: .normal)
         card.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             if self.isOpen { self.setOpen(false, animated: true) } else { self.onTap?() }

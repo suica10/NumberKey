@@ -17,8 +17,8 @@ let package = Package(
         .target(
             name: "PhraseStore",
             path: "Keyboard",
-            exclude: ["BufferDocument.swift", "ConversionService.swift", "KeyboardCanvas.swift", "KeyboardSettings.swift", "KeyboardViewController.swift", "MarkedTextSession.swift", "Info.plist", "NumberKeyKeyboard.entitlements"],
-            sources: ["PhraseStore.swift", "ClipboardHistory.swift", "EnglishSuggest.swift", "EnglishWordMode.swift", "EmojiData.swift", "DictionaryPacks.swift", "PurchaseState.swift"]
+            exclude: ["BufferDocument.swift", "ConversionService.swift", "KeyboardCanvas.swift", "KeyboardViewController.swift", "MarkedTextSession.swift", "Info.plist", "NumberKeyKeyboard.entitlements"],
+            sources: ["PhraseStore.swift", "ClipboardHistory.swift", "EnglishSuggest.swift", "EnglishWordMode.swift", "EmojiData.swift", "DictionaryPacks.swift", "PurchaseState.swift", "KeyboardSettings.swift", "KeyboardAppearance.swift"]
         ),
         .testTarget(
             name: "ConversionTests",
