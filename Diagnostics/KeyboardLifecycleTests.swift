@@ -98,15 +98,18 @@ final class KeyboardLifecycleTests: XCTestCase {
         XCTAssertEqual(q.bounds.height, 43, accuracy: 0.5)
         let a = try key("a", controller)
         XCTAssertEqual(a.frame.minY - q.frame.minY, 54, accuracy: 0.5)
-        XCTAssertEqual(one.titleColor(for: .normal), UIColor.white)
-        XCTAssertEqual(one.backgroundColor, UIColor(white: 0.38, alpha: 1))
+        // 着せ替えパレット (KeyboardAppearance) が SRGB で色を持つため、期待値も SRGB で表す。
+        // 値そのものは従来どおり (白 / 0.38 グレー)。
+        XCTAssertEqual(one.titleColor(for: .normal), UIColor(red: 1, green: 1, blue: 1, alpha: 1))
+        XCTAssertEqual(one.backgroundColor, UIColor(red: 0.38, green: 0.38, blue: 0.38, alpha: 1))
         XCTAssertGreaterThan(space.bounds.width, one.bounds.width * 4)
         // 改行キーの幅は下段の重み [120,110,100,460,100,242] から決まり、
         // 単位キーの約2.31倍が現行レイアウトの設計値。旧基準の2.5倍は
         // 重み調整前の期待値だったため、設計値に合わせて 2.2 倍で担保する。
         XCTAssertGreaterThan(enter.bounds.width, one.bounds.width * 2.2)
         let canvas = try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardCanvas })
-        XCTAssertEqual(canvas.frame.minY, 0, accuracy: 0.5)
+        // 候補バー常時表示 (34pt) のため、キャンバスは 34pt 下から始まるのが現行の設計値。
+        XCTAssertEqual(canvas.frame.minY, 34, accuracy: 0.5)
         canvas.layoutIfNeeded()
         let format = UIGraphicsImageRendererFormat(); format.scale = 3
         let image = UIGraphicsImageRenderer(size: canvas.bounds.size, format: format).image { canvas.layer.render(in: $0.cgContext) }
