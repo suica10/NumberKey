@@ -29,12 +29,12 @@ struct SettingsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     case .trial(let daysLeft):
                         Text("体験中（残り\(daysLeft)日）")
-                        Text("体験期間は1週間です。終了後はキーボードが使えなくなります。購入すると、そのまま引き続き使えます。")
+                        Text("体験期間は1週間です。終了後は定型文・クリップボード履歴・辞書パックが使えなくなります（入力そのものはそのまま使えます）。購入すると、全機能を引き続き使えます。")
                             .font(.footnote).foregroundStyle(.secondary)
                         purchaseButtons
                     case .expired:
                         Text("体験期間が終了しました")
-                        Text("購入すると、引き続き使えます。")
+                        Text("入力そのものはそのまま使えます。購入すると、定型文・クリップボード履歴・辞書パックも使えるようになります。")
                             .font(.footnote).foregroundStyle(.secondary)
                         purchaseButtons
                     }
@@ -76,6 +76,13 @@ struct SettingsView: View {
                                 packEnabled[id] = value
                                 packStore.setEnabled(id, value)
                             }))
+                            // 期限切れの間はパック自体が無効。設定値そのものは
+                            // 変えず、購入すればこの設定どおりに戻る。
+                            .disabled(displayState == .expired)
+                    }
+                    if displayState == .expired {
+                        Text("体験期間が終了したため、辞書パックは現在使えません。購入すると、ここの設定どおりに使えます。")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     Text("ON の辞書だけを読み込みます。SNS の候補は、変換候補の先頭に出ます。")
                         .font(.footnote).foregroundStyle(.secondary)

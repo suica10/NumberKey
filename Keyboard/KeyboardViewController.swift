@@ -157,11 +157,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private let recentEmojiStore = RecentEmojiStore()
     private var emojiPanelOpenedAt: Date?
     private var lastStripValues: [String] = []
-    // 販売ビルド: 体験期間が終了したときだけ、キーの代わりに出す案内ビュー。
-    private let expiredView = UIView()
-    private let expiredLabel = UILabel()
-    private let expiredOpenButton = UIButton(type: .system)
-    private var purchaseExpired = false
+    // 販売ビルド: 有料機能（定型文・クリップボード履歴・辞書パック）が
+    // 使えるか。体験期間終了後は false になり、各機能の入口でのみ案内を
+    // 出す（2026-11-26 仕様変更: 全面ロックアウト廃止）。基本入力はこの
+    // フラグに一切影響されない。既定は true（判定前・判定失敗時は
+    // PurchaseGate のフェイルオープンと合わせて機能を止めない）。
+    private var premiumFeaturesEnabled = true
     private let clipboardStack = UIStackView()
     private let clipboardClearButton = UIButton(type: .system)
     private var isClipboardPicking = false
@@ -302,22 +303,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
         }
         Task { await service.warmUp() }
-        // 期限切れ案内ビュー（通常は隠れている）。文言だけが頼りの導線なので、
-        // アプリを開くボタンは試みとして置き、効かなくても文言で案内できる形にする。
-        expiredView.isHidden = true
-        expiredLabel.text = "体験期間（1週間）が終了しました。One Keyboard アプリを開いて購入すると、引き続き使えます。"
-        expiredLabel.numberOfLines = 0
-        expiredLabel.textAlignment = .center
-        expiredLabel.font = .systemFont(ofSize: 16)
-        expiredView.addSubview(expiredLabel)
-        expiredOpenButton.setTitle("One Keyboard アプリを開く", for: .normal)
-        expiredOpenButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        expiredOpenButton.addAction(UIAction { [weak self] _ in
-            guard let url = URL(string: "onekeyboard://") else { return }
-            self?.extensionContext?.open(url, completionHandler: nil)
-        }, for: .touchUpInside)
-        expiredView.addSubview(expiredOpenButton)
-        view.addSubview(expiredView)
         refreshPurchaseState()
         rebuildCanvas()
         // ルート高さ制約（優先度999、ビルド45と同じ付け方）。初期値は
@@ -329,11 +314,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         updateRequestedHeight()
     }
 
-    /// 購入/トライアル状態を判定し直す。期限切れのときだけ案内ビューを出す。
-    /// 読み取りに失敗した場合は PurchaseGate 側のフェイルオープンで trial 扱いに
-    /// なるため、ここでロックされることはない。
+    /// 購入/トライアル状態を判定し直し、有料機能の可否だけを更新する。
+    /// 基本入力には一切触れない。読み取りに失敗した場合は PurchaseGate 側の
+    /// フェイルオープンで trial 扱いになるため、機能が誤って止まることはない。
     private func refreshPurchaseState() {
-        purchaseExpired = PurchaseGate.evaluateForDisplay() == .expired
+        premiumFeaturesEnabled = PurchaseGate.evaluateForDisplay().premiumFeaturesEnabled
     }
 
     private var panelsBuilt = false
@@ -633,6 +618,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             phraseScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             phraseAddButton.frame = CGRect(x: 12, y: max(0, panelHeight - 46), width: 160, height: 38)
             phraseReorderToggle.frame = CGRect(x: max(0, panelWidth - 142), y: max(0, panelHeight - 46), width: 130, height: 38)
+            // 有料機能が無効な間は、追加・編集の入口自体を出さない
+            // （パネル本体には購入案内の行だけが出る）。
+            phraseAddButton.isHidden = !premiumFeaturesEnabled
+            phraseReorderToggle.isHidden = !premiumFeaturesEnabled
         }
         let clipboardPanelHeight = metrics.clipboardPanelHeight
         clipboardPanel.isHidden = !isClipboardPicking
@@ -647,6 +636,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             clipboardCloseButton.frame = CGRect(x: max(0, panelWidth - 52), y: 6, width: 40, height: 36)
             clipboardScroll.frame = CGRect(x: 8, y: 48, width: max(0, panelWidth - 16), height: max(0, panelHeight - 48 - 50))
             clipboardClearButton.frame = CGRect(x: max(0, panelWidth - 112), y: max(0, panelHeight - 46), width: 100, height: 38)
+            // 有料機能が無効な間は全削除も履歴機能の一部として隠す。
+            clipboardClearButton.isHidden = !premiumFeaturesEnabled
         }
         let emojiPanelHeight = metrics.emojiPanelHeight
         emojiPanel.isHidden = !isEmojiPicking
@@ -678,17 +669,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let canvasFrame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         canvas.frame = canvasFrame
         flickCanvas.frame = canvasFrame
-        // 期限切れのときは案内ビューがキーボード全体を覆う（キーは触れない）。
-        expiredView.isHidden = !purchaseExpired
-        if purchaseExpired {
-            expiredView.frame = view.bounds
-            expiredView.backgroundColor = view.backgroundColor
-            expiredLabel.textColor = traitCollection.userInterfaceStyle == .light ? UIColor.black : UIColor.white
-            let midY = view.bounds.height / 2
-            expiredLabel.frame = CGRect(x: 24, y: midY - 78, width: max(0, width - 48), height: 92)
-            expiredOpenButton.frame = CGRect(x: 24, y: midY + 22, width: max(0, width - 48), height: 44)
-            view.bringSubviewToFront(expiredView)
-        }
         // 要求高さは関数の先頭で metrics.totalHeight に公開済み。
         // 配置したフレームの合計と常に一致する（build 50）。
     }
@@ -761,6 +741,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// クリップボードに新しい文字列があれば履歴の先頭に取り込む。
     /// changeCount が変わったときだけ中身を読む（無駄な読み取りをしない）。
     private func captureClipboard() {
+        // クリップボード履歴が有料機能として無効な間は、取り込み自体も止める
+        // （changeCount も進めないので、購入後はその時点の内容から再開する）。
+        guard premiumFeaturesEnabled else { return }
         guard hasFullAccess else { return }
         let pasteboard = UIPasteboard.general
         let last = UserDefaults.standard.integer(forKey: Self.clipboardChangeCountKey)
@@ -888,6 +871,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ])
         return container
     }
+    /// 有料機能が無効なときにパネルへ出す購入案内の行。タップで本体アプリを
+    /// 開く試みをする（開けなくても文言で案内できる形。旧・期限切れ全画面
+    /// 案内と同じ作法）。
+    private func panelPurchaseNoteView(_ text: String) -> UIView {
+        let container = panelNoteView(text + "\nタップで One Keyboard アプリを開きます。")
+        container.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openHostApp)))
+        return container
+    }
+    @objc private func openHostApp() {
+        guard let url = URL(string: "onekeyboard://") else { return }
+        extensionContext?.open(url, completionHandler: nil)
+    }
     private func rebuildClipboardRows() {
         for arranged in clipboardStack.arrangedSubviews {
             clipboardStack.removeArrangedSubview(arranged)
@@ -897,6 +892,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let isLight = traitCollection.userInterfaceStyle == .light
         func noteRow(_ text: String) {
             clipboardStack.addArrangedSubview(panelNoteView(text))
+        }
+        // クリップボード履歴は有料機能。無効な間は履歴を見せず購入案内だけ出す
+        // （保存済みの履歴自体は消さない。購入すればそのまま戻る）。
+        guard premiumFeaturesEnabled else {
+            clipboardStack.addArrangedSubview(panelPurchaseNoteView("体験期間が終了しました。クリップボード履歴は購入すると使えます。"))
+            return
         }
         guard hasFullAccess else {
             noteRow("フルアクセスが必要です。設定 → 一般 → キーボード → One Keyboardで「フルアクセスを許可」をオンにしてください。")
@@ -944,6 +945,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         openPhraseRow = nil
         let isLight = traitCollection.userInterfaceStyle == .light
+        // 定型文は有料機能。無効な間は一覧を出さず購入案内だけ出す
+        // （登録済みの定型文自体は消さない。購入すればそのまま戻る）。
+        guard premiumFeaturesEnabled else {
+            phraseStack.addArrangedSubview(panelPurchaseNoteView("体験期間が終了しました。定型文は購入すると使えます。"))
+            return
+        }
         let phrases = phraseStore.phrases
         if phrases.isEmpty {
             phraseStack.addArrangedSubview(panelNoteView("定型文はまだありません"))
@@ -1005,6 +1012,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     private func beginCapture(editingIndex: Int? = nil, initialText: String = "") {
         guard !isCapturing else { return }
+        // 定型文の登録・編集も有料機能の一部（通常はパネル側で入口が隠れるが、
+        // 入口をここでも閉じておく）。
+        guard premiumFeaturesEnabled else { return }
         buildPanelsIfNeeded()
         hidePhrasePicker()
         hideClipboardPanel()
@@ -1448,6 +1458,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない。
     private func insertPackExtras(_ list: [String], kana: String) -> [String] {
         guard isJapanese else { packExtraValues = []; return list }
+        // 辞書パックは有料機能。無効な間は、ON/OFF の設定自体はそのままに
+        // 適用だけを止める（購入すれば設定どおりに即戻る）。
+        guard premiumFeaturesEnabled else { packExtraValues = []; return list }
         let pinned = dictionaryLibrary.pinnedSurfaces(forKana: kana, store: dictionaryStore)
         let appended = dictionaryLibrary.appendedSurfaces(forKana: kana, store: dictionaryStore)
         packExtraValues = Set(pinned + appended)
@@ -1739,8 +1752,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
               let lexicon = englishLexicon else { englishSuggestions = []; return }
         var merged = lexicon.suggestions(for: typed.lowercased())
         // 辞書パックの英数字パターン (そのまま型) も補完の末尾に足す。
-        for extra in dictionaryLibrary.patternCompletions(forTyped: typed, store: dictionaryStore) where !merged.contains(extra) {
-            merged.append(extra)
+        // パックが有料機能として無効な間は足さない（設定はそのまま残る）。
+        if premiumFeaturesEnabled {
+            for extra in dictionaryLibrary.patternCompletions(forTyped: typed, store: dictionaryStore) where !merged.contains(extra) {
+                merged.append(extra)
+            }
         }
         englishSuggestions = Array(merged.prefix(10))
     }

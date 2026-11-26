@@ -9,6 +9,12 @@ enum PurchaseState: Equatable {
     case unlocked
     case trial(daysLeft: Int)
     case expired
+
+    /// 有料機能（定型文・クリップボード履歴・辞書パック）が使えるか。
+    /// 2026-11-26 の仕様変更で全面ロックアウトは廃止され、無効化されるのは
+    /// `.expired` のときの有料機能だけになった。基本入力（タイピング・変換）は
+    /// 状態によらず常時使えるため、この判定を入力パスで使うことはない。
+    var premiumFeaturesEnabled: Bool { self != .expired }
 }
 
 /// 状態判定の純粋ロジック。StoreKit・Keychain・UserDefaults に依存しないため
@@ -24,8 +30,9 @@ enum PurchaseLogic {
     ///   - trialStart: Keychain から読めたトライアル開始日時。`nil` は「未記録」
     ///     または「読み取り失敗」のどちらかで、呼び出し側は区別しない。
     ///   - unlocked: App Group の購入済みフラグ。
-    /// フェイルオープン原則: ロック（`expired`）になるのは「trialStart が読めて、
-    /// 7 日を超過し、未購入」が確定したときだけ。情報が欠けたら trial 扱いにする。
+    /// フェイルオープン原則: `expired`（有料機能の無効化）になるのは
+    /// 「trialStart が読めて、7 日を超過し、未購入」が確定したときだけ。
+    /// 情報が欠けたら trial 扱いにする。
     static func evaluate(trialStart: Date?, unlocked: Bool, now: Date) -> PurchaseState {
         if unlocked { return .unlocked }
         guard let trialStart else { return .trial(daysLeft: fullTrialDays) }
@@ -113,5 +120,10 @@ enum PurchaseGate {
             return .trial(daysLeft: PurchaseLogic.fullTrialDays)
         }
         return currentState(now: now)
+    }
+
+    /// 有料機能（定型文・クリップボード履歴・辞書パック）が使えるか（読み取り専用）。
+    static func premiumFeaturesEnabled(now: Date = Date()) -> Bool {
+        currentState(now: now).premiumFeaturesEnabled
     }
 }
