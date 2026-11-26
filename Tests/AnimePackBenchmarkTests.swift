@@ -169,6 +169,40 @@ final class AnimePackBenchmarkTests: XCTestCase {
         XCTAssertLessThan(onMs, 0.5, "パック統合が桁違いに遅い")
     }
 
+    // MARK: - 前方一致 (予測) の応答
+
+    func testPrefixLookupLatency() throws {
+        let data = try Data(contentsOf: URL(fileURLWithPath: animeTSVPath))
+        let pack = DictionaryPackData.parse(data)
+        let all = kanaReadings(in: data)
+        // 4文字以上の読みから、先頭3文字を prefix として等間隔に 40 件。
+        let long = all.filter { $0.count >= 4 }
+        var prefixes: [String] = []
+        if !long.isEmpty {
+            let stride = max(1, long.count / 40)
+            var i = 0
+            while prefixes.count < 40, i < long.count {
+                prefixes.append(String(long[i].prefix(3)))
+                i += stride
+            }
+        }
+        XCTAssertFalse(prefixes.isEmpty, "サンプル prefix が無い")
+
+        for p in prefixes { _ = pack.prefixSurfaces(forPrefix: p, limit: 10) }
+        let reps = 200
+        var totalResults = 0
+        let t0 = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<reps {
+            for p in prefixes {
+                totalResults += pack.prefixSurfaces(forPrefix: p, limit: 10).count
+            }
+        }
+        let calls = Double(reps * prefixes.count)
+        let perCallMs = (ProcessInfo.processInfo.systemUptime - t0) * 1000 / calls
+        print("BENCH prefix readings=\(pack.byReading.count) prefixes=\(prefixes.count) avgResults=\(String(format: "%.2f", Double(totalResults) / calls)) perCallMs=\(String(format: "%.4f", perCallMs))")
+        XCTAssertLessThan(perCallMs, 1.0, "前方一致がサブミリ秒級でない")
+    }
+
     // MARK: - 変換込みのエンドツーエンド応答
 
     func testEndToEndResponse() async throws {

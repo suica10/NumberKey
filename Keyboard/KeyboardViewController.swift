@@ -1524,8 +1524,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// (変換・リランクの後段なので並び替えでは動かない)、
     /// それ以外のパックは先頭候補の直後に差し込む (ユーザーが明示的に
     /// 有効化した専用語彙で、読みが完全一致すれば意図はほぼ確定のため。
-    /// 末尾追加だった頃は変換ノイズの後ろに埋もれた)。読みがかな文字列と
-    /// 完全一致した表記だけを出す (部分一致は誤爆する)。
+    /// 末尾追加だった頃は変換ノイズの後ろに埋もれた)。
+    /// 前方一致の予測 (読みが入力途中のもの) も出すが、部分一致は誤爆
+    /// しやすいので規律を厳しくする: 3文字以上・SNS を除く・完全一致と
+    /// 重なる表記は除く・合計10件まで・候補列の末尾にのみ置く。
     /// パック候補は英字そのまま候補と同様、日本語変換の学習対象にしない。
     private func insertPackExtras(_ list: [String], kana: String) -> [String] {
         guard isJapanese else { packExtraValues = []; return list }
@@ -1534,8 +1536,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard premiumFeaturesEnabled else { packExtraValues = []; return list }
         let pinned = dictionaryLibrary.pinnedSurfaces(forKana: kana, store: dictionaryStore)
         let appended = dictionaryLibrary.appendedSurfaces(forKana: kana, store: dictionaryStore)
-        packExtraValues = Set(pinned + appended)
-        return DictionaryPackLibrary.mergingPacks(into: list, pinned: pinned, appended: appended)
+        let predicted = kana.count >= 3
+            ? dictionaryLibrary.predictedSurfaces(forKana: kana, store: dictionaryStore)
+            : []
+        packExtraValues = Set(pinned + appended + predicted)
+        return DictionaryPackLibrary.mergingPacks(
+            into: list, pinned: pinned, appended: appended, predicted: predicted)
     }
     /// 変換学習に回してよい候補か。英字そのまま候補と辞書パック候補は回さない。
     private func shouldLearn(_ value: String) -> Bool {

@@ -214,4 +214,83 @@ final class DictionaryPacksTests: XCTestCase {
             into: ["面取り", "変換A"], pinned: [], appended: ["面取り", "ネジ"])
         XCTAssertEqual(merged, ["面取り", "ネジ", "変換A"])
     }
+
+    // MARK: - 前方一致の予測 (2026-11-26 追加)
+
+    private func makePrefixPack() -> DictionaryPackData {
+        let tsv = """
+        すし\t寿司
+        すしや\t寿司屋
+        すしざんまい\tすしざんまい
+        すしろー\tスシロー
+        そば\t蕎麦
+        すしや\tすし家
+        すしねた\t寿司ネタ
+        すしねた\t寿司屋
+        """
+        return DictionaryPackData.parse(Data(tsv.utf8))
+    }
+
+    func testPrefixSurfacesRangeOrderAndExactExcluded() {
+        let pack = makePrefixPack()
+        // 範囲: 読みが「すし」で始まるものだけ (そば は範囲外)。
+        // 完全一致の「すし」自体は含まない (完全一致は surfaces の担当)。
+        // 順序: 読みの短い順 → 同じ長さは登録順
+        // (すしや(3) → すしろー(4, 登録3番目) → すしねた(4, 登録4番目) → すしざんまい(6))。
+        // 寿司屋 は すしねた にも現れるが重複させない。
+        XCTAssertEqual(pack.prefixSurfaces(forPrefix: "すし", limit: 10),
+                       ["寿司屋", "すし家", "スシロー", "寿司ネタ", "すしざんまい"])
+        XCTAssertEqual(pack.prefixSurfaces(forPrefix: "うどん", limit: 10), [])
+    }
+
+    func testPrefixSurfacesLimitAndEmptyPrefix() {
+        let pack = makePrefixPack()
+        XCTAssertEqual(pack.prefixSurfaces(forPrefix: "すし", limit: 2), ["寿司屋", "すし家"])
+        XCTAssertEqual(pack.prefixSurfaces(forPrefix: "すし", limit: 0), [])
+        XCTAssertEqual(pack.prefixSurfaces(forPrefix: "", limit: 10), [])
+    }
+
+    func testPredictedSurfacesExcludeSNSAndExactSurfaces() {
+        let library = DictionaryPackLibrary { id in
+            switch id {
+            case .sns: return DictionaryPackData.parse(Data("すしや\tSNS寿司屋\n".utf8))
+            case .industrial: return DictionaryPackData.parse(Data("すしや\t寿司\nすしやたい\t寿司屋台\n".utf8))
+            case .anime: return DictionaryPackData.parse(Data("すしやまい\t寿司山\n".utf8))
+            default: return DictionaryPackData()
+            }
+        }
+        let store = DictionaryPackStore(defaults: defaults)
+        // 2文字では予測しない (最小3文字はライブラリ側でも守る)。
+        XCTAssertEqual(library.predictedSurfaces(forKana: "すし", store: store), [])
+        // SNS の前方一致は予測に出ない。完全一致で出る「寿司」と同じ表記は
+        // 予測側では繰り返さない (ここでは すしやたい の 寿司屋台 のみ)。
+        XCTAssertEqual(library.predictedSurfaces(forKana: "すしや", store: store), ["寿司屋台"])
+        store.setEnabled(.anime, true)
+        XCTAssertEqual(library.predictedSurfaces(forKana: "すしや", store: store), ["寿司屋台", "寿司山"])
+    }
+
+    func testPredictedSurfacesCapAtTen() {
+        var lines = ""
+        for (i, tail) in ["え", "お", "か", "き", "く", "け", "こ", "さ", "し", "す",
+                           "せ", "た", "ち", "つ", "て"].enumerated() {
+            lines += "あいう\(tail)\t表記\(i)\n"
+        }
+        let library = DictionaryPackLibrary { id in
+            id == .industrial ? DictionaryPackData.parse(Data(lines.utf8)) : DictionaryPackData()
+        }
+        let store = DictionaryPackStore(defaults: defaults)
+        let predicted = library.predictedSurfaces(forKana: "あいう", store: store)
+        XCTAssertEqual(predicted.count, 10)
+        XCTAssertEqual(predicted.first, "表記0")
+        XCTAssertEqual(predicted.last, "表記9")
+    }
+
+    func testMergingPacksAppendsPredictedAtEnd() {
+        // 予測は末尾にのみ足し、本体候補・完全一致と重なれば作らない
+        // (予測X は本体候補に既にあるので末尾へは出直さない)。
+        let merged = DictionaryPackLibrary.mergingPacks(
+            into: ["変換A", "予測X", "変換B"], pinned: ["リプ"], appended: ["面取り"],
+            predicted: ["予測X", "予測Y", "変換A"])
+        XCTAssertEqual(merged, ["リプ", "変換A", "面取り", "予測X", "変換B", "予測Y"])
+    }
 }

@@ -59,6 +59,10 @@ struct DictionaryPackData {
     private(set) var byReading: [String: [String]] = [:]
     /// 英数字パターン (そのまま型)。入力は小文字化して保持する。
     private(set) var patterns: [(input: String, surface: String)] = []
+    /// 前方一致検索用の索引: 読みをソートした配列 (範囲は二分探索で特定する)。
+    private(set) var sortedReadings: [String] = []
+    /// 読みの登録順 (初出の行番号順)。前方一致の同順位タイブレークに使う。
+    private(set) var readingOrder: [String: Int] = [:]
 
     static func parse(_ data: Data) -> DictionaryPackData {
         guard let text = String(data: data, encoding: .utf8) else { return DictionaryPackData() }
@@ -75,12 +79,16 @@ struct DictionaryPackData {
                     result.patterns.append((input: key, surface: surface))
                 }
             } else {
-                if result.byReading[reading] == nil { result.byReading[reading] = [] }
+                if result.byReading[reading] == nil {
+                    result.byReading[reading] = []
+                    result.readingOrder[reading] = result.readingOrder.count
+                }
                 if result.byReading[reading]?.contains(surface) != true {
                     result.byReading[reading]?.append(surface)
                 }
             }
         }
+        result.sortedReadings = result.byReading.keys.sorted()
         return result
     }
 
@@ -91,6 +99,39 @@ struct DictionaryPackData {
     }
 
     func surfaces(forKana kana: String) -> [String] { byReading[kana] ?? [] }
+
+    /// 前方一致の予測候補。読みが prefix で始まる (ただし prefix と完全一致
+    /// する読みは除く — それは surfaces(forKana:) の担当) エントリの表記を、
+    /// 読みの短い順 → 登録順に集めて limit 件まで返す。
+    /// 範囲の特定はソート済み読み配列への二分探索で、全件走査はしない
+    /// (O(log n + 範囲内件数))。最小文字数の判定は呼び出し側の責任。
+    func prefixSurfaces(forPrefix prefix: String, limit: Int) -> [String] {
+        guard !prefix.isEmpty, limit > 0 else { return [] }
+        var lo = 0
+        var hi = sortedReadings.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if sortedReadings[mid] < prefix { lo = mid + 1 } else { hi = mid }
+        }
+        var matched: [String] = []
+        var i = lo
+        while i < sortedReadings.count, sortedReadings[i].hasPrefix(prefix) {
+            if sortedReadings[i] != prefix { matched.append(sortedReadings[i]) }
+            i += 1
+        }
+        matched.sort { a, b in
+            if a.count != b.count { return a.count < b.count }
+            return (readingOrder[a] ?? 0) < (readingOrder[b] ?? 0)
+        }
+        var result: [String] = []
+        for reading in matched {
+            for surface in byReading[reading] ?? [] where !result.contains(surface) {
+                result.append(surface)
+                if result.count >= limit { return result }
+            }
+        }
+        return result
+    }
 
     /// 英字入力へのパターン補完。前方一致する表記を登録順に返す。
     /// 入力済みの文字列そのもの (大文字小文字まで一致) は返さない。
@@ -207,6 +248,24 @@ final class DictionaryPackLibrary {
         return result
     }
 
+    /// 前方一致の予測候補。SNS 以外の有効なパックから、読みが kana で
+    /// 始まるエントリの表記を集める (合計10件まで)。完全一致で既に出る
+    /// 表記は除く。SNS は完全一致の先頭固定のみで、予測には混ぜない。
+    /// 誤爆を避けるため、呼び出し側は候補列の末尾にのみ置くこと。
+    func predictedSurfaces(forKana kana: String, store: DictionaryPackStore) -> [String] {
+        guard kana.count >= 3 else { return [] }
+        let exact = Set(appendedSurfaces(forKana: kana, store: store))
+        var result: [String] = []
+        for id in DictionaryPackID.allCases where id != .sns && store.isEnabled(id) {
+            for surface in data(for: id).prefixSurfaces(forPrefix: kana, limit: 10)
+            where !exact.contains(surface) && !result.contains(surface) {
+                result.append(surface)
+                if result.count >= 10 { return result }
+            }
+        }
+        return result
+    }
+
     /// 本体の候補列にパック候補を統合する。SNS (pinned) は先頭に固定し、
     /// 本体側に同じ表記があっても先頭へ寄せる。SNS 以外 (appended) は
     /// 先頭候補の直後に差し込む。パックはユーザーが明示的に有効化した
@@ -217,23 +276,28 @@ final class DictionaryPackLibrary {
     /// 同じ流儀)。パック表記が本体候補の下位にあれば引き上げる。
     /// 重複は作らない。この統合は変換・リランクの後段でだけ行うので、
     /// SNS が並び替えで後ろに送られることはない。
-    static func mergingPacks(into candidates: [String], pinned: [String], appended: [String]) -> [String] {
+    /// predicted (前方一致の予測) は推測の度合いが最も弱いので、統合済みの
+    /// 列の末尾にだけ足す。本体候補や完全一致と重なる表記は作らない。
+    static func mergingPacks(into candidates: [String], pinned: [String], appended: [String],
+                             predicted: [String] = []) -> [String] {
         var result: [String] = []
         for surface in pinned where !result.contains(surface) { result.append(surface) }
         var rest: [String] = []
         for surface in candidates where !result.contains(surface) && !rest.contains(surface) {
             rest.append(surface)
         }
-        guard let head = rest.first else {
+        if let head = rest.first {
+            var zone: [String] = []
+            for surface in appended where surface != head && !result.contains(surface) && !zone.contains(surface) {
+                zone.append(surface)
+            }
+            let tail = Array(rest.dropFirst()).filter { !zone.contains($0) }
+            result += [head] + zone + tail
+        } else {
             for surface in appended where !result.contains(surface) { result.append(surface) }
-            return result
         }
-        var zone: [String] = []
-        for surface in appended where surface != head && !result.contains(surface) && !zone.contains(surface) {
-            zone.append(surface)
-        }
-        let tail = Array(rest.dropFirst()).filter { !zone.contains($0) }
-        return result + [head] + zone + tail
+        for surface in predicted where !result.contains(surface) { result.append(surface) }
+        return result
     }
 
     /// 有効な全パックから、英字入力へのパターン補完をパック順に集める。
