@@ -43,6 +43,7 @@ final class DictionaryPacksTests: XCTestCase {
         XCTAssertFalse(store.isEnabled(.oshikatsuCommon))
         XCTAssertFalse(store.isEnabled(.oshikatsuMale))
         XCTAssertFalse(store.isEnabled(.oshikatsuFemale))
+        XCTAssertFalse(store.isEnabled(.socialGame))
     }
 
     func testStoreTogglePersists() {
@@ -205,6 +206,51 @@ final class DictionaryPacksTests: XCTestCase {
         XCTAssertEqual(pack.surfaces(forKana: "にっさん"), ["日産自動車"])
         // 日経225 全銘柄 + 主要な非上場・エクストラを収録する規模であること。
         XCTAssertGreaterThanOrEqual(text.split(separator: "\n").count, 250)
+    }
+
+    // MARK: - ソシャゲーパック (同梱 TSV の実データ検証, 2026-11-27 追加)
+
+    private func bundledTSVData(_ resourceName: String) throws -> Data {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../Keyboard/\(resourceName).tsv")
+        return try Data(contentsOf: url)
+    }
+
+    /// パース後の総エントリ数 (かな表記の合計 + 英字パターン数)。
+    private func parsedEntryCount(_ data: Data) -> Int {
+        let pack = DictionaryPackData.parse(data)
+        return pack.byReading.values.reduce(0) { $0 + $1.count } + pack.patterns.count
+    }
+
+    func testSocialGamePackBundledData() throws {
+        XCTAssertEqual(DictionaryPackID.socialGame.displayName, "ソシャゲー")
+        XCTAssertEqual(DictionaryPackID.socialGame.resourceName, "dictionary_socialgame")
+        XCTAssertFalse(DictionaryPackID.socialGame.defaultEnabled)
+        let data = try bundledTSVData("dictionary_socialgame")
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            XCTAssertEqual(parts.count, 2, "TSV 形式でない行: \(line)")
+            XCTAssertFalse(parts[1].contains("#"), "記事アンカー混入: \(line)")
+        }
+        let pack = DictionaryPackData.parse(data)
+        XCTAssertEqual(pack.surfaces(forKana: "ぐらんぶるーふぁんたじー"), ["グランブルーファンタジー"])
+        XCTAssertEqual(pack.surfaces(forKana: "さいれんすすずか"), ["サイレンススズカ"])
+        XCTAssertEqual(pack.surfaces(forKana: "ましゅ・きりえらいと"), ["マシュ・キリエライト"])
+        // 英字タイトルはパターン補完として引ける。
+        XCTAssertEqual(pack.patternCompletions(forTyped: "fate"), ["Fate/Grand Order"])
+        // Wikipedia 由来ドラフトから記事タイトル・文断片などのノイズ
+        // (91件) を除去した確定件数。
+        XCTAssertEqual(parsedEntryCount(data), 7_300)
+    }
+
+    func testBundledPackEntryCounts() throws {
+        // アニメは今回の統合では不変 (43,437件)。
+        XCTAssertEqual(parsedEntryCount(try bundledTSVData("dictionary_anime")), 43_437)
+        // 推し活: アイドル追加分 (女性 +479 / 男性 +11) を統合した件数。
+        XCTAssertEqual(parsedEntryCount(try bundledTSVData("dictionary_oshikatsu_female")), 1_340)
+        XCTAssertEqual(parsedEntryCount(try bundledTSVData("dictionary_oshikatsu_male")), 543)
     }
 
     func testMergingPacksDedupesAppendedAgainstCandidates() {

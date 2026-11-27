@@ -25,6 +25,7 @@ enum DictionaryPackID: String, CaseIterable {
     case oshikatsuCommon
     case oshikatsuMale
     case oshikatsuFemale
+    case socialGame
 
     var displayName: String {
         switch self {
@@ -35,6 +36,7 @@ enum DictionaryPackID: String, CaseIterable {
         case .oshikatsuCommon: return "推し活・共通"
         case .oshikatsuMale: return "推し活・男性"
         case .oshikatsuFemale: return "推し活・女性"
+        case .socialGame: return "ソシャゲー"
         }
     }
 
@@ -47,6 +49,7 @@ enum DictionaryPackID: String, CaseIterable {
         case .oshikatsuCommon: return "dictionary_oshikatsu_common"
         case .oshikatsuMale: return "dictionary_oshikatsu_male"
         case .oshikatsuFemale: return "dictionary_oshikatsu_female"
+        case .socialGame: return "dictionary_socialgame"
         }
     }
 
