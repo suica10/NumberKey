@@ -84,7 +84,7 @@ private final class FlickKey: UIView {
         // 中央の文字が主役のままになるよう、文字色を薄く・小さくする。
         // 実挙動と一致させるため、わ・、 にも下 (ゎ・) を含め全方向出す
         // (ポップアップの下セル省略は表示だけの都合で、ガイドとは別)。
-        let guideFont = UIFont.systemFont(ofSize: min(13, max(10, bounds.height * 0.24)))
+        let guideFont = UIFont.systemFont(ofSize: min(11, max(8.5, bounds.height * 0.18)))
         let guideColor = textColor.withAlphaComponent(0.55)
         let box = guideFont.pointSize * 1.5
         let guideFrames: [FlickDirection: CGRect] = [
