@@ -241,8 +241,9 @@ final class DictionaryPacksTests: XCTestCase {
         // 英字タイトルはパターン補完として引ける。
         XCTAssertEqual(pack.patternCompletions(forTyped: "fate"), ["Fate/Grand Order"])
         // Wikipedia 由来ドラフトから記事タイトル・文断片などのノイズ
-        // (91件) を除去した確定件数。
-        XCTAssertEqual(parsedEntryCount(data), 7_300)
+        // (91件) を除去した確定件数。2026-11-27 学園アイドルマスターの
+        // キャラ名+タイトル25件を追加。
+        XCTAssertEqual(parsedEntryCount(data), 7_325)
     }
 
     func testBundledPackEntryCounts() throws {

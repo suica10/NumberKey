@@ -41,7 +41,7 @@ final class SocialGamePackBenchmarkTests: XCTestCase {
         let surfaces = pack.byReading.values.reduce(0) { $0 + $1.count } + pack.patterns.count
         print("BENCH socialgame entries=\(lines.count) parsed=\(surfaces) fileBytes=\(data.count)")
         print("BENCH socialgame parseMs avg=\(String(format: "%.2f", total / Double(reps)))")
-        XCTAssertEqual(surfaces, 7_300)
+        XCTAssertEqual(surfaces, 7_325)
         XCTAssertLessThan(total / Double(reps), 500, "パースが桁違いに遅い")
     }
 
