@@ -83,7 +83,8 @@ final class CustomAppearanceTests: XCTestCase {
     func testStandardPaletteMatchesLegacyConstants() {
         // 現行 (着せ替え導入前) のハードコード値と一致すること。
         let dark = KeyboardPalette.standard(dark: true)
-        XCTAssertEqual(dark.background, .gray(0.17))
+        // build 92: iOS 27 のキーボードパネルの塗り (#333335) に合わせた値。
+        XCTAssertEqual(dark.background, KeyboardColor(red: 51.0 / 255, green: 51.0 / 255, blue: 53.0 / 255))
         XCTAssertEqual(dark.keyFace, .gray(0.38))
         XCTAssertEqual(dark.keyPressed, .gray(0.56))
         XCTAssertEqual(dark.keyText, .white)

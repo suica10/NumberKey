@@ -208,10 +208,16 @@ struct KeyboardPalette: Equatable {
     /// 現行パレット (着せ替え OFF / 未ピック要素のデフォルト)。
     /// 数値は KeyboardCanvas / FlickCanvas / KeyboardViewController が
     /// 従来ハードコードしていた定数と一致させる。
+    /// 例外はダーク時の background (build 92): iOS 27 のキーボード
+    /// パネルは拡張ビューの外側 (上端キャップと下端トレイ) を
+    /// #333335 で塗るため、背景色を同値に合わせて継ぎ目を消す
+    /// (帯はシステム側 chrome で拡張からは除去できない。実機
+    /// スクリーンショットのピクセル実測で同値を確認済み)。
     static func standard(dark: Bool) -> KeyboardPalette {
         if dark {
             return KeyboardPalette(
-                background: .gray(0.17), keyFace: .gray(0.38), keyPressed: .gray(0.56),
+                background: KeyboardColor(red: 51.0 / 255, green: 51.0 / 255, blue: 53.0 / 255),
+                keyFace: .gray(0.38), keyPressed: .gray(0.56),
                 keyText: .white, candidateText: .white,
                 candidateSelectedBackground: .gray(0.45, alpha: 0.95),
                 panelBackground: .gray(0.24), panelBorder: .gray(0.42),
