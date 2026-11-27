@@ -42,6 +42,23 @@ final class CustomAppearanceTests: XCTestCase {
         XCTAssertTrue(decoded.flickMode)
     }
 
+    func testFlickGuideLettersDefaultOnAndPersisted() throws {
+        // デフォルト ON。
+        XCTAssertTrue(LayoutSettings.defaults.flickGuideLetters)
+        // 旧設定 JSON (キーなし) は ON としてデコードされる。
+        let legacy = #"{"version":1,"keyHeight":0,"theme":2,"japanese":true,"flickMode":true}"#
+        let decodedLegacy = try JSONDecoder().decode(LayoutSettings.self, from: Data(legacy.utf8))
+        XCTAssertTrue(decodedLegacy.flickGuideLetters)
+        XCTAssertTrue(decodedLegacy.isValid)
+        // OFF にした値はラウンドトリップで保持される。
+        var settings = LayoutSettings.defaults
+        settings.flickGuideLetters = false
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(LayoutSettings.self, from: data)
+        XCTAssertFalse(decoded.flickGuideLetters)
+        XCTAssertEqual(decoded, settings)
+    }
+
     func testKeyboardSettingsSnapshotRoundTrip() {
         // App Group の UserDefaults 経由の保存・復元 (実保存先は一時 suite)。
         let suiteName = "test.customAppearance.\(UUID().uuidString)"

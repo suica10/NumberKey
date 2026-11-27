@@ -21,27 +21,8 @@ protocol KeyboardSurface: UIView {
 
 extension KeyboardCanvas: KeyboardSurface {}
 
-/// フリック1キーの候補。純正の並び: 中央=あ段、左=い段、上=う段、
-/// 右=え段、下=お段。特殊行 (や・わ・記号) も同じ5枠に純正割当を入れる。
-private struct FlickRow {
-    var center: String
-    var left: String
-    var up: String
-    var right: String
-    var down: String
-    /// 最下段の わ・、 は下セルを表示しない (2026-11-27 ユーザー指示)。
-    /// 下方向のフリックは中央として扱い、中央の文字を確定する。
-    var omitDown = false
-    func candidate(_ direction: FlickDirection) -> String {
-        switch direction {
-        case .center: return center
-        case .left: return left
-        case .up: return up
-        case .right: return right
-        case .down: return down
-        }
-    }
-}
+/// フリック1キーの候補 (FlickRow) は FlickPopupGeometry.swift に置く
+/// (単体テストと共有するため)。
 
 /// フリック判定を持つかなキー。タッチ開始点を記録し、移動量がしきい値を
 /// 超えたら支配的な軸方向を選ぶ。離した時点で選択中の候補を必ず確定する
@@ -56,19 +37,33 @@ private final class FlickKey: UIView {
     var onPreview: ((FlickKey, FlickDirection) -> Void)?
     var onCommit: ((String) -> Void)?
     var onEnd: (() -> Void)?
+    /// ガイド文字 (各キーの上下左右に行き先を小さく表示) の ON/OFF。
+    /// 設定 (LayoutSettings.flickGuideLetters) から configure で受け取る。
+    var showsGuides = true { didSet { setNeedsLayout() } }
     private let label = UILabel()
+    private let guideLabels: [FlickDirection: UILabel]
     private var startPoint: CGPoint?
     private var direction: FlickDirection = .center
     private var shadowSize: CGSize = .zero
 
     init(row: FlickRow, displayLabel: String? = nil) {
         self.row = row
+        var guides: [FlickDirection: UILabel] = [:]
+        for dir in [FlickDirection.left, .up, .right, .down] {
+            let guide = UILabel()
+            guide.text = row.candidate(dir)
+            guide.textAlignment = .center
+            guide.isUserInteractionEnabled = false
+            guides[dir] = guide
+        }
+        guideLabels = guides
         super.init(frame: .zero)
         label.text = displayLabel ?? row.center
         if displayLabel != nil { label.adjustsFontSizeToFitWidth = true; label.minimumScaleFactor = 0.5 }
         label.textAlignment = .center
         label.isUserInteractionEnabled = false
         addSubview(label)
+        for guide in guides.values { addSubview(guide) }
         layer.cornerRadius = 5
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0.25
@@ -85,6 +80,25 @@ private final class FlickKey: UIView {
         label.frame = bounds
         label.font = .systemFont(ofSize: min(30, max(20, bounds.height * 0.52)))
         label.textColor = textColor
+        // ガイド文字: 行き先をキーの上下左右の縁に小さく置く (ガラケー式)。
+        // 中央の文字が主役のままになるよう、文字色を薄く・小さくする。
+        // 実挙動と一致させるため、わ・、 にも下 (ゎ・) を含め全方向出す
+        // (ポップアップの下セル省略は表示だけの都合で、ガイドとは別)。
+        let guideFont = UIFont.systemFont(ofSize: min(13, max(10, bounds.height * 0.24)))
+        let guideColor = textColor.withAlphaComponent(0.55)
+        let box = guideFont.pointSize * 1.5
+        let guideFrames: [FlickDirection: CGRect] = [
+            .up: CGRect(x: 0, y: 1, width: bounds.width, height: box),
+            .down: CGRect(x: 0, y: bounds.height - box - 1, width: bounds.width, height: box),
+            .left: CGRect(x: 2, y: (bounds.height - box) / 2, width: box, height: box),
+            .right: CGRect(x: bounds.width - box - 2, y: (bounds.height - box) / 2, width: box, height: box),
+        ]
+        for (dir, guide) in guideLabels {
+            guide.frame = guideFrames[dir] ?? .zero
+            guide.font = guideFont
+            guide.textColor = guideColor
+            guide.isHidden = !showsGuides
+        }
         backgroundColor = startPoint == nil ? normalColor : pressedColor
         if shadowSize != bounds.size {
             shadowSize = bounds.size
@@ -104,13 +118,12 @@ private final class FlickKey: UIView {
         let point = touch.location(in: self)
         let dx = point.x - start.x, dy = point.y - start.y
         let threshold = max(16, bounds.height * 0.38)
-        var next: FlickDirection = .center
-        if max(abs(dx), abs(dy)) >= threshold {
-            next = abs(dx) > abs(dy) ? (dx < 0 ? .left : .right) : (dy < 0 ? .up : .down)
-        }
-        // 下セルを持たないキー (わ・、) では下方向を中央として扱う。
-        // 下フリックでも中央の文字が必ず確定する (取りこぼさない)。
-        if next == .down, row.omitDown { next = .center }
+        // 方向判定は omitDown に影響されない: わ・、 の下フリックでも
+        // 下方向が選ばれ、down の文字 (ゎ・) が確定する。omitDown は
+        // ポップアップの下セルを表示しないという表示だけの都合で、
+        // ポップアップ側は下方向が選ばれても下セルが無いためハイライト
+        // されるセルが無いだけ (確定は通常どおり行われる)。
+        let next = FlickPopupGeometry.direction(dx: dx, dy: dy, threshold: threshold)
         if next != direction {
             direction = next
             onPreview?(self, next)
@@ -208,6 +221,7 @@ final class FlickCanvas: UIView, KeyboardSurface {
             key.normalColor = keyColor
             key.pressedColor = palette.keyPressed.uiColor
             key.textColor = palette.keyText.uiColor
+            key.showsGuides = settings.flickGuideLetters
             key.onPreview = { [weak self] key, direction in self?.showPopup(for: key, direction: direction) }
             key.onCommit = { [weak self] text in self?.onText?(text) }
             key.onEnd = { [weak self] in self?.hidePopup() }

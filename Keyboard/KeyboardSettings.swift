@@ -33,6 +33,10 @@ struct LayoutSettings: Codable, Equatable {
     /// フリックモード (日本語入力を純正準拠のフリック配列にする)。false は
     /// 従来の QWERTY。英数に切り替えた場合は flickMode でも QWERTY 面を使う。
     var flickMode = false
+    /// フリックキーのガイド文字 (各キーの上下左右に行き先を小さく表示)。
+    /// デフォルト ON (2026-11-27 ユーザー指示)。旧設定にキーが無い場合は
+    /// ON としてデコードする。
+    var flickGuideLetters = true
     /// 着せ替えのマスター ON/OFF (2026-11-26 確定仕様)。デフォルト OFF で、
     /// OFF の間は背景画像・個別色のどちらも適用されず、従来どおり theme
     /// (システムのライト/ダーク追従) だけで描画する。
@@ -47,7 +51,7 @@ struct LayoutSettings: Codable, Equatable {
     static let defaults = LayoutSettings()
     static let prefix = "NUMBERKEY_LAYOUT_V1:"
 
-    private enum CodingKeys: String, CodingKey { case version, keyHeight, theme, japanese, flickMode, customizationEnabled, customAppearance }
+    private enum CodingKeys: String, CodingKey { case version, keyHeight, theme, japanese, flickMode, flickGuideLetters, customizationEnabled, customAppearance }
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -56,6 +60,7 @@ struct LayoutSettings: Codable, Equatable {
         theme = try values.decodeIfPresent(Int.self, forKey: .theme) ?? 2
         japanese = try values.decodeIfPresent(Bool.self, forKey: .japanese) ?? true
         flickMode = try values.decodeIfPresent(Bool.self, forKey: .flickMode) ?? false
+        flickGuideLetters = try values.decodeIfPresent(Bool.self, forKey: .flickGuideLetters) ?? true
         customizationEnabled = try values.decodeIfPresent(Bool.self, forKey: .customizationEnabled) ?? false
         customAppearance = try values.decodeIfPresent(CustomAppearance.self, forKey: .customAppearance) ?? CustomAppearance()
     }

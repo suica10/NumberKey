@@ -61,6 +61,9 @@ struct SettingsView: View {
                     Picker("入力方式", selection: $layout.flickMode) {
                         Text("QWERTY").tag(false); Text("フリック").tag(true)
                     }
+                    if layout.flickMode {
+                        Toggle("フリックのガイド文字", isOn: $layout.flickGuideLetters)
+                    }
                     Picker("配色", selection: $layout.theme) {
                         Text("自動").tag(0); Text("ライト").tag(1); Text("ダーク").tag(2)
                     }
