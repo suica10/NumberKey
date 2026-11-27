@@ -176,6 +176,90 @@ final class CustomAppearanceTests: XCTestCase {
         XCTAssertTrue(settings.isValid)
     }
 
+    // MARK: - 背景画像の位置・拡大 (2026-11-27 ユーザー指示)
+
+    func testBackgroundImageTransformDefaultsReproduceLegacyRendering() throws {
+        // 変換フィールドの無い従来 JSON ではデフォルト (等倍・中央) になる。
+        let json = #"{"backgroundImageFileName":"keyboard-background-v1.jpg","backgroundImageDim":0.5}"#
+        let appearance = try JSONDecoder().decode(CustomAppearance.self, from: Data(json.utf8))
+        XCTAssertEqual(appearance.backgroundImageScale, 1)
+        XCTAssertEqual(appearance.backgroundImageOffsetX, 0)
+        XCTAssertEqual(appearance.backgroundImageOffsetY, 0)
+        XCTAssertTrue(appearance.isValid)
+    }
+
+    func testBackgroundImageTransformIsClampedOnDecode() throws {
+        let json = #"{"backgroundImageScale":99,"backgroundImageOffsetX":-7,"backgroundImageOffsetY":2}"#
+        let appearance = try JSONDecoder().decode(CustomAppearance.self, from: Data(json.utf8))
+        XCTAssertEqual(appearance.backgroundImageScale, CustomAppearance.backgroundImageScaleRange.upperBound)
+        XCTAssertEqual(appearance.backgroundImageOffsetX, -1)
+        XCTAssertEqual(appearance.backgroundImageOffsetY, 1)
+        XCTAssertTrue(appearance.isValid)
+    }
+
+    func testBackgroundImageTransformRoundTrips() throws {
+        var appearance = CustomAppearance()
+        appearance.backgroundImageScale = 2.5
+        appearance.backgroundImageOffsetX = -0.4
+        appearance.backgroundImageOffsetY = 0.75
+        let data = try JSONEncoder().encode(appearance)
+        XCTAssertEqual(try JSONDecoder().decode(CustomAppearance.self, from: data), appearance)
+    }
+
+    private func rect(container: CGSize, image: CGSize, fills: Bool,
+                      scale: Double = 1, offsetX: Double = 0, offsetY: Double = 0) -> CGRect {
+        CustomAppearance.backgroundImageRect(containerSize: container, imageSize: image,
+                                             fillsScreen: fills, scale: scale,
+                                             offsetX: offsetX, offsetY: offsetY)
+    }
+
+    func testBackgroundImageRectDefaultMatchesAspectFill() {
+        // 正方形画像 100×100 を 400×300 に全面表示: 倍率 4 で 400×400、
+        // 縦は中央 (はみ出し -100 の半分)。
+        let result = rect(container: CGSize(width: 400, height: 300),
+                          image: CGSize(width: 100, height: 100), fills: true)
+        XCTAssertEqual(result, CGRect(x: 0, y: -50, width: 400, height: 400))
+    }
+
+    func testBackgroundImageRectDefaultMatchesAspectFit() {
+        // 全体表示: 倍率 3 で 300×300、横は中央。
+        let result = rect(container: CGSize(width: 400, height: 300),
+                          image: CGSize(width: 100, height: 100), fills: false)
+        XCTAssertEqual(result, CGRect(x: 50, y: 0, width: 300, height: 300))
+    }
+
+    func testBackgroundImageRectScaleMultipliesRenderedSize() {
+        // 全体表示に拡大率 2: 倍率 6 で 600×600、中央配置。
+        let result = rect(container: CGSize(width: 400, height: 300),
+                          image: CGSize(width: 100, height: 100), fills: false, scale: 2)
+        XCTAssertEqual(result, CGRect(x: -100, y: -150, width: 600, height: 600))
+    }
+
+    func testBackgroundImageRectOffsetMovesWithinSlack() {
+        // 全面表示のはみ出し (縦 -100) に対し、offset ±1 で端が一致する。
+        let top = rect(container: CGSize(width: 400, height: 300),
+                       image: CGSize(width: 100, height: 100), fills: true, offsetY: 1)
+        XCTAssertEqual(top.minY, 0)
+        let bottom = rect(container: CGSize(width: 400, height: 300),
+                          image: CGSize(width: 100, height: 100), fills: true, offsetY: -1)
+        XCTAssertEqual(bottom.minY, -100)
+        XCTAssertEqual(bottom.maxY, 300)
+        // 範囲外のオフセットでも端を越えない。
+        let over = rect(container: CGSize(width: 400, height: 300),
+                        image: CGSize(width: 100, height: 100), fills: true, offsetY: 5)
+        XCTAssertEqual(over.minY, 0)
+    }
+
+    func testBackgroundImageRectShrinkKeepsImageInsideContainer() {
+        // 縮小 (0.5) すると余白側に倒れ、オフセットで余白内を動く。
+        let result = rect(container: CGSize(width: 400, height: 300),
+                          image: CGSize(width: 100, height: 100), fills: true,
+                          scale: 0.5, offsetX: 1, offsetY: 1)
+        XCTAssertEqual(result.size, CGSize(width: 200, height: 200))
+        XCTAssertEqual(result.minX, 200)
+        XCTAssertEqual(result.minY, 100)
+    }
+
     func testResetColorsClearsOnlyColors() {
         var appearance = CustomAppearance()
         appearance.keyFace = .white

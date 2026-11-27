@@ -121,8 +121,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     private let predictionStripHeight: CGFloat = 30
     /// 帯が占める高さ。2026-11-26 のユーザー決定で、候補バーは候補の
     /// 有無によらず両面とも常時表示とし、高さを固定する（入力中に
-    /// レイアウトが変動しないようにする。フリック面の余白確保と同方針）。
-    /// 候補が無いとき帯は空欄になるだけで、枠そのものは出し続ける。
+    /// レイアウトが変動しないようにする）。候補が無いとき帯は空欄に
+    /// なるだけで、枠そのものは出し続ける。2026-11-27 以降はフリック
+    /// 面のポップアップがこの帯の領域へ被さって出る (高さは不変)。
     /// build 88 で下段の予測帯が加わり、日本語モードでは上段+下段の
     /// 合計を常時予約する (予測の有無で高さが跳ねないようにするため)。
     /// 英語モードに予測帯は無いので、その分の高さは言語切替のときに
@@ -145,10 +146,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 背景画像（着せ替え）の表示先。ルート直下に敷き、その上に重ね
     /// ビュー（背景色のスクリム）を置いてキー文字の読みやすさを調整する。
     /// キャンバス側は画像使用時に透明になり、この画像が全面に見える。
+    /// 画像は拡大・位置調整ではみ出すため、クリップ用のコンテナに入れる。
+    private let backgroundClipView = UIView()
     private let backgroundImageView = UIImageView()
     private let backgroundScrimView = UIView()
     /// 読み込み済みの背景画像のファイル名（同じ画像を再読込しないため）。
     private var loadedBackgroundImageName: String?
+    /// 表示中の背景画像に適用する見た目設定（拡大率・位置を含む）。
+    /// レイアウト時に CustomAppearance.backgroundImageRect へ渡す。
+    private var backgroundAppearance: CustomAppearance?
     // 定型文はキーボード拡張自身の保存領域で完結させる（PhraseStore 参照）。
     private lazy var phraseStore = PhraseStore(legacyPhrases: { KeyboardViewController.legacySharedPhrases() })
     private let clipboardStore = ClipboardHistoryStore()
@@ -228,10 +234,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         super.viewDidLoad()
         // 着せ替えの背景画像は一番下に敷く。以後に追加される帯・パネル・
         // キャンバスはすべてこの上に載る。画像とスクリムは操作を受けない。
-        backgroundImageView.clipsToBounds = true
+        // 画像のフレームは拡大率・位置で決まるため contentMode は使わず、
+        // はみ出しはクリップ用コンテナで切る。
+        backgroundClipView.clipsToBounds = true
+        backgroundClipView.isUserInteractionEnabled = false
+        backgroundClipView.isHidden = true
+        view.addSubview(backgroundClipView)
+        backgroundImageView.contentMode = .scaleToFill
         backgroundImageView.isUserInteractionEnabled = false
-        backgroundImageView.isHidden = true
-        view.addSubview(backgroundImageView)
+        backgroundClipView.addSubview(backgroundImageView)
         backgroundScrimView.isUserInteractionEnabled = false
         backgroundScrimView.isHidden = true
         view.addSubview(backgroundScrimView)
@@ -335,6 +346,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         canvas.configureMenu = { [weak self] button in self?.configureMenu(button) }
         canvas.configureSpaceMenu = { [weak self] button in self?.configureSpaceMenu(button) }
         view.addSubview(flickCanvas)
+        // フリックのポップアップは候補バー側へ被さるため、ルートビューを
+        // 載せ先にする (キャンバス内に閉じ込めない)。
+        flickCanvas.popupHost = view
         flickCanvas.isHidden = true
         flickCanvas.onText = { [weak self] in self?.insertFlick($0) }
         flickCanvas.onAction = { [weak self] in self?.handle($0) }
@@ -653,10 +667,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let keysHeight = metrics.keysHeight
         let candidateHeight = metrics.candidateHeight
         updateRequestedHeight()
-        // 背景画像とスクリムはキーボード全面に敷く。
-        if !backgroundImageView.isHidden {
-            backgroundImageView.frame = view.bounds
+        // 背景画像とスクリムはキーボード全面に敷く。画像のフレームは
+        // 保存された拡大率・位置から決める (未調整では従来の全面/全体
+        // 表示と一致する)。QWERTY 面・フリック面ともキャンバスが透明に
+        // なり、このルート側の画像がそのまま見える。
+        if !backgroundClipView.isHidden {
+            backgroundClipView.frame = view.bounds
             backgroundScrimView.frame = view.bounds
+            if let image = backgroundImageView.image, let appearance = backgroundAppearance {
+                backgroundImageView.frame = CustomAppearance.backgroundImageRect(
+                    containerSize: view.bounds.size, imageSize: image.size,
+                    fillsScreen: appearance.backgroundImageFillsScreen,
+                    scale: appearance.backgroundImageScale,
+                    offsetX: appearance.backgroundImageOffsetX,
+                    offsetY: appearance.backgroundImageOffsetY)
+            } else {
+                backgroundImageView.frame = view.bounds
+            }
         }
         // 登録中はキーボード全体を画面の約6割まで広げ、その大半を定型文の枠に充てる。
         // 完全な全画面は拡張の仕様上できないため、これが上限の目安。
@@ -784,15 +811,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                 backgroundImageView.image = KeyboardBackgroundImageStore.loadImage(fileName: name)
                 loadedBackgroundImageName = name
             }
-            backgroundImageView.contentMode = snapshot.customAppearance.backgroundImageFillsScreen
-                ? .scaleAspectFill : .scaleAspectFit
-            backgroundImageView.isHidden = false
+            // 拡大率・位置はレイアウト時にフレームへ反映する。
+            backgroundAppearance = snapshot.customAppearance
+            backgroundClipView.isHidden = false
             backgroundScrimView.backgroundColor = currentPalette.background.uiColor
             backgroundScrimView.alpha = CGFloat(snapshot.customAppearance.backgroundImageDim)
             backgroundScrimView.isHidden = false
         } else {
-            backgroundImageView.isHidden = true
+            backgroundClipView.isHidden = true
             backgroundScrimView.isHidden = true
+            backgroundAppearance = nil
             if loadedBackgroundImageName != nil {
                 loadedBackgroundImageName = nil
                 backgroundImageView.image = nil

@@ -77,8 +77,18 @@ struct CustomAppearance: Codable, Equatable {
     /// 背景画像の上にパレットの背景色を重ねる濃さ (0...0.85)。
     /// 画像のままではキー文字が読みにくい場面の調整用。
     var backgroundImageDim: Double = 0.35
+    /// 背景画像の拡大率 (1 = 従来表示)。設定画面でユーザーが調整する
+    /// (2026-11-27 ユーザー指示)。backgroundImageRect の基準倍率に掛ける。
+    var backgroundImageScale: Double = 1
+    /// 背景画像の横位置 (-1...1、0 = 中央)。はみ出し/余白の半分を 1 と
+    /// する正規化値で、端では画像の端がコンテナの端に一致して止まる。
+    var backgroundImageOffsetX: Double = 0
+    /// 背景画像の縦位置 (-1...1、0 = 中央)。
+    var backgroundImageOffsetY: Double = 0
 
     static let backgroundImageDimRange: ClosedRange<Double> = 0...0.85
+    static let backgroundImageScaleRange: ClosedRange<Double> = 0.3...4
+    static let backgroundImageOffsetRange: ClosedRange<Double> = -1...1
     /// 背景画像の保存名は世代管理のため固定名にする (選び直しは上書き)。
     static let standardBackgroundImageFileName = "keyboard-background-v1.jpg"
 
@@ -89,6 +99,7 @@ struct CustomAppearance: Codable, Equatable {
         case panelBackground, panelBorder, panelCardBackground, panelText
         case popupSelectedBackground, popupSelectedText
         case backgroundImageFileName, backgroundImageFillsScreen, backgroundImageDim
+        case backgroundImageScale, backgroundImageOffsetX, backgroundImageOffsetY
     }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -109,6 +120,17 @@ struct CustomAppearance: Codable, Equatable {
         let dim = try values.decodeIfPresent(Double.self, forKey: .backgroundImageDim) ?? 0.35
         backgroundImageDim = dim.isFinite ? min(Self.backgroundImageDimRange.upperBound,
                                                 max(Self.backgroundImageDimRange.lowerBound, dim)) : 0.35
+        // 位置・拡大は後付けフィールド。無い設定 (従来分) ではデフォルト
+        // (中央・等倍) になり、従来の表示と完全に一致する。
+        let scale = try values.decodeIfPresent(Double.self, forKey: .backgroundImageScale) ?? 1
+        backgroundImageScale = scale.isFinite ? min(Self.backgroundImageScaleRange.upperBound,
+                                                    max(Self.backgroundImageScaleRange.lowerBound, scale)) : 1
+        let offsetX = try values.decodeIfPresent(Double.self, forKey: .backgroundImageOffsetX) ?? 0
+        backgroundImageOffsetX = offsetX.isFinite ? min(Self.backgroundImageOffsetRange.upperBound,
+                                                        max(Self.backgroundImageOffsetRange.lowerBound, offsetX)) : 0
+        let offsetY = try values.decodeIfPresent(Double.self, forKey: .backgroundImageOffsetY) ?? 0
+        backgroundImageOffsetY = offsetY.isFinite ? min(Self.backgroundImageOffsetRange.upperBound,
+                                                        max(Self.backgroundImageOffsetRange.lowerBound, offsetY)) : 0
     }
 
     /// ピック済みの色をすべて外す (背景画像の設定は対象外)。
@@ -125,11 +147,45 @@ struct CustomAppearance: Codable, Equatable {
                       popupSelectedBackground, popupSelectedText]
         guard colors.allSatisfy({ $0?.isValid ?? true }) else { return false }
         guard backgroundImageDim.isFinite, Self.backgroundImageDimRange.contains(backgroundImageDim) else { return false }
+        guard backgroundImageScale.isFinite, Self.backgroundImageScaleRange.contains(backgroundImageScale) else { return false }
+        guard backgroundImageOffsetX.isFinite, Self.backgroundImageOffsetRange.contains(backgroundImageOffsetX) else { return false }
+        guard backgroundImageOffsetY.isFinite, Self.backgroundImageOffsetRange.contains(backgroundImageOffsetY) else { return false }
         if let name = backgroundImageFileName {
             // 共有コンテナ直下のファイル名だけを許可する (パス traversal 防止)。
             guard !name.isEmpty, name.count <= 64, !name.contains("/"), !name.contains("..") else { return false }
         }
         return true
+    }
+}
+
+extension CustomAppearance {
+    /// 背景画像の描画矩形 (コンテナ座標)。基準は従来表示そのもの:
+    /// fillsScreen なら aspectFill、でなければ aspectFit で中央に置く。
+    /// そこへユーザーの拡大率 (scale) と正規化オフセット (-1...1) を
+    /// 適用する。scale = 1・offset = 0 では従来表示と完全に一致する。
+    /// オフセットは「はみ出し/余白の半分」を 1 とし、原点は画像の端が
+    /// コンテナの端を越えない範囲にクランプする (縮小して余白側に
+    /// 倒れた場合も同じ式で対称に扱う)。キーボード拡張 (全面) と
+    /// ホストアプリの調整プレビューの両方がこの計算を共有する。
+    static func backgroundImageRect(containerSize: CGSize, imageSize: CGSize,
+                                    fillsScreen: Bool, scale: Double,
+                                    offsetX: Double, offsetY: Double) -> CGRect {
+        guard containerSize.width > 0, containerSize.height > 0,
+              imageSize.width > 0, imageSize.height > 0 else {
+            return CGRect(origin: CGPoint(x: 0, y: 0), size: containerSize)
+        }
+        let fit = fillsScreen
+            ? max(containerSize.width / imageSize.width, containerSize.height / imageSize.height)
+            : min(containerSize.width / imageSize.width, containerSize.height / imageSize.height)
+        let factor = fit * CGFloat(scale)
+        let size = CGSize(width: imageSize.width * factor, height: imageSize.height * factor)
+        let slackX = containerSize.width - size.width
+        let slackY = containerSize.height - size.height
+        func origin(_ slack: CGFloat, _ offset: Double) -> CGFloat {
+            let centered = slack / 2 + CGFloat(offset) * abs(slack) / 2
+            return min(max(centered, min(0, slack)), max(0, slack))
+        }
+        return CGRect(origin: CGPoint(x: origin(slackX, offsetX), y: origin(slackY, offsetY)), size: size)
     }
 }
 

@@ -15,6 +15,8 @@ struct SettingsView: View {
     /// 着せ替えの背景画像ピッカーの選択と、プレビュー用の読み込み済み画像。
     @State private var backgroundPhotoItem: PhotosPickerItem?
     @State private var backgroundPreviewImage: UIImage?
+    /// 背景画像プレビューのドラッグ開始時点の位置 (正規化オフセット)。
+    @State private var backgroundDragBase: (x: Double, y: Double)?
     @State private var packEnabled: [DictionaryPackID: Bool] = [:]
     private let packStore = DictionaryPackStore()
     @StateObject private var store = StoreManager()
@@ -93,6 +95,21 @@ struct SettingsView: View {
                                 Slider(value: $layout.customAppearance.backgroundImageDim,
                                        in: CustomAppearance.backgroundImageDimRange)
                             }
+                            backgroundAdjustPreview
+                            HStack {
+                                Text("画像の大きさ")
+                                Slider(value: $layout.customAppearance.backgroundImageScale,
+                                       in: CustomAppearance.backgroundImageScaleRange)
+                            }
+                            if layout.customAppearance.backgroundImageScale != 1
+                                || layout.customAppearance.backgroundImageOffsetX != 0
+                                || layout.customAppearance.backgroundImageOffsetY != 0 {
+                                Button("画像の位置と大きさをリセット") {
+                                    layout.customAppearance.backgroundImageScale = 1
+                                    layout.customAppearance.backgroundImageOffsetX = 0
+                                    layout.customAppearance.backgroundImageOffsetY = 0
+                                }
+                            }
                             Button("背景画像を削除", role: .destructive) {
                                 if let name = layout.customAppearance.backgroundImageFileName {
                                     KeyboardBackgroundImageStore.remove(fileName: name)
@@ -124,6 +141,10 @@ struct SettingsView: View {
                            let image = UIImage(data: data),
                            let name = KeyboardBackgroundImageStore.save(image) {
                             layout.customAppearance.backgroundImageFileName = name
+                            // 画像が替わったら位置・大きさは初期状態から調整する。
+                            layout.customAppearance.backgroundImageScale = 1
+                            layout.customAppearance.backgroundImageOffsetX = 0
+                            layout.customAppearance.backgroundImageOffsetY = 0
                             backgroundPreviewImage = KeyboardBackgroundImageStore.loadImage(fileName: name)
                         }
                     }
@@ -215,20 +236,82 @@ struct SettingsView: View {
     /// 着せ替えを反映した実効パレット (プレビュー用)。
     private var effectivePalette: KeyboardPalette { layout.resolvedPalette(dark: colorScheme == .dark) }
 
+    /// 背景画像の描画矩形。キーボード側と共有の計算を使うため、
+    /// プレビューで見たままがキーボードに出る。
+    private func backgroundRect(containerSize: CGSize, image: UIImage) -> CGRect {
+        CustomAppearance.backgroundImageRect(
+            containerSize: containerSize, imageSize: image.size,
+            fillsScreen: layout.customAppearance.backgroundImageFillsScreen,
+            scale: layout.customAppearance.backgroundImageScale,
+            offsetX: layout.customAppearance.backgroundImageOffsetX,
+            offsetY: layout.customAppearance.backgroundImageOffsetY)
+    }
+
+    /// 背景画像の位置調整プレビュー。ドラッグで位置を動かす
+    /// (大きさは下のスライダー)。計算はキーボード側と同一。
+    private var backgroundAdjustPreview: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Color(uiColor: effectivePalette.background.uiColor)
+                if let image = backgroundPreviewImage {
+                    let rect = backgroundRect(containerSize: geo.size, image: image)
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                }
+            }
+            .contentShape(Rectangle())
+            .highPriorityGesture(backgroundDragGesture(containerSize: geo.size))
+        }
+        .frame(height: 180)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func backgroundDragGesture(containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard let image = backgroundPreviewImage else { return }
+                if backgroundDragBase == nil {
+                    backgroundDragBase = (layout.customAppearance.backgroundImageOffsetX,
+                                          layout.customAppearance.backgroundImageOffsetY)
+                }
+                guard let base = backgroundDragBase else { return }
+                // 移動量 (pt) を正規化オフセットへ換算する。オフセット 1 は
+                // 「はみ出し/余白の半分」の移動にあたる (rect 計算と対)。
+                // rect の寸法はオフセットに依存しないためドラッグ中も安定する。
+                let rect = backgroundRect(containerSize: containerSize, image: image)
+                let slackX = containerSize.width - rect.width
+                let slackY = containerSize.height - rect.height
+                if abs(slackX) > 1 {
+                    layout.customAppearance.backgroundImageOffsetX =
+                        min(1, max(-1, base.x + Double(value.translation.width) / (abs(slackX) / 2)))
+                }
+                if abs(slackY) > 1 {
+                    layout.customAppearance.backgroundImageOffsetY =
+                        min(1, max(-1, base.y + Double(value.translation.height) / (abs(slackY) / 2)))
+                }
+            }
+            .onEnded { _ in backgroundDragBase = nil }
+    }
+
     /// 着せ替えのミニプレビュー。背景画像＋背景色の重ねの上に、候補と
     /// キーのサンプルを実効パレットで描く。
     private var appearancePreview: some View {
         let palette = effectivePalette
-        return ZStack {
-            if let image = backgroundPreviewImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: layout.customAppearance.backgroundImageFillsScreen ? .fill : .fit)
-                Color(uiColor: palette.background.uiColor)
-                    .opacity(layout.customAppearance.backgroundImageDim)
-            } else {
-                Color(uiColor: palette.background.uiColor)
-            }
+        return GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                if let image = backgroundPreviewImage {
+                    let rect = backgroundRect(containerSize: geo.size, image: image)
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                    Color(uiColor: palette.background.uiColor)
+                        .opacity(layout.customAppearance.backgroundImageDim)
+                } else {
+                    Color(uiColor: palette.background.uiColor)
+                }
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Text("候補")
@@ -254,6 +337,7 @@ struct SettingsView: View {
                 .font(.system(size: 15))
             }
             .padding(8)
+            }
         }
         .frame(height: 96)
         .clipShape(RoundedRectangle(cornerRadius: 10))
