@@ -1,29 +1,50 @@
 import Foundation
 
-/// フリックの十字ポップアップ (3×3 セル) の配置計算。UIKit に依存しない
-/// 純粋関数として切り出し、単体テストで固定する
+/// フリック方向。ポップアップのセル配置と候補の対応を決める
+/// (FlickCanvas のキー判定と、ここの配置計算で共有する)。
+enum FlickDirection { case center, left, up, right, down }
+
+/// フリックの十字ポップアップの配置計算。UIKit に依存しない純粋関数
+/// として切り出し、単体テストで固定する
 /// (Tests/FlickPopupGeometryTests.swift)。
+///
+/// 配置の前提 (2026-11-27 ユーザー指示): キャンバスに上下の余白は確保
+/// しない。高さはグリッド (4段＋段間3つ) ちょうどで、最上段キーの
+/// ポップアップはキャンバスの上端を越えて候補バー側へ被さる。そのため
+/// ポップアップはキャンバスではなく候補バー＋キャンバスを跨ぐホスト
+/// (VC のルートビュー) に載せ、座標はすべてホスト基準で扱う。
+/// 最下段の わ・、 は下セル自体を持たない (下フリックは中央で確定する)
+/// ため、下側の余白も要らない。
 enum FlickPopupGeometry {
-    /// フリック面の必要高さ。グリッド (4段＋段間3つ) の上下に、ポップ
-    /// アップのセル 1 つ分の余白 (ヘッドルーム) を最初から確保する
-    /// (2026-11-26 ユーザー提案)。最上段・最下段のキーでも、中心セルが
-    /// キーに重なったまま十字全体がキャンバス内に収まる。
+    /// フリック面の必要高さ = グリッドそのもの (4段＋段間3つ)。
+    /// ポップアップ表示で高さは変わらない。
     static func preferredHeight(rowHeight: CGFloat, rowGap: CGFloat) -> CGFloat {
-        rowHeight * 6 + rowGap * 3
+        rowHeight * 4 + rowGap * 3
     }
 
-    /// ポップアップのコンテナ原点を返す。基準は「十字の中心セルが
-    /// 押したキーに完全に重なる」位置 (純正準拠)。上下は preferredHeight
-    /// の余白で収まる設計だが、想定外の寸法でも見切れないよう、原点を
-    /// キャンバス内に収まる範囲へクランプするガードを兼ねる
-    /// (横方向の端は余白が無いため、こちらは常時このクランプが効く)。
+    /// ポップアップの占有サイズ。omitDown のキー (最下段の わ・、) は
+    /// 下セルが無いため、高さがセル 2 つ分になる。
+    static func popupSize(cellSize: CGSize, omitDown: Bool) -> CGSize {
+        CGSize(width: cellSize.width * 3, height: cellSize.height * (omitDown ? 2 : 3))
+    }
+
+    /// ポップアップに表示するセルの集合。omitDown では下セルを出さない。
+    static func displayedDirections(omitDown: Bool) -> [FlickDirection] {
+        omitDown ? [.center, .left, .up, .right] : [.center, .left, .up, .right, .down]
+    }
+
+    /// ポップアップの原点を返す (ホスト座標、keyFrame もホスト座標)。
+    /// 基準は「十字の中心セルが押したキーに完全に重なる」位置 (純正準拠)。
+    /// 最上段では原点がキャンバスより上 (候補バー側) へ出るのが正しい
+    /// 挙動で、クランプはホストの端に対してだけ掛ける (候補バーの
+    /// さらに上や、ホストの下端の外へは出さないためのガード)。
     /// CGRect の midX/minY は環境により見えないため原点・サイズから計算する。
-    static func popupOrigin(keyFrame: CGRect, canvasSize: CGSize, cellSize: CGSize) -> CGPoint {
-        let popupSize = CGSize(width: cellSize.width * 3, height: cellSize.height * 3)
-        var origin = CGPoint(x: keyFrame.origin.x + keyFrame.size.width / 2 - popupSize.width / 2,
+    static func popupOrigin(keyFrame: CGRect, hostSize: CGSize, cellSize: CGSize, omitDown: Bool) -> CGPoint {
+        let size = popupSize(cellSize: cellSize, omitDown: omitDown)
+        var origin = CGPoint(x: keyFrame.origin.x + keyFrame.size.width / 2 - size.width / 2,
                              y: keyFrame.origin.y - cellSize.height)
-        origin.x = min(max(0, origin.x), max(0, canvasSize.width - popupSize.width))
-        origin.y = min(max(0, origin.y), max(0, canvasSize.height - popupSize.height))
+        origin.x = min(max(0, origin.x), max(0, hostSize.width - size.width))
+        origin.y = min(max(0, origin.y), max(0, hostSize.height - size.height))
         return origin
     }
 }

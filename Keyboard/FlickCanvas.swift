@@ -29,6 +29,9 @@ private struct FlickRow {
     var up: String
     var right: String
     var down: String
+    /// 最下段の わ・、 は下セルを表示しない (2026-11-27 ユーザー指示)。
+    /// 下方向のフリックは中央として扱い、中央の文字を確定する。
+    var omitDown = false
     func candidate(_ direction: FlickDirection) -> String {
         switch direction {
         case .center: return center
@@ -39,8 +42,6 @@ private struct FlickRow {
         }
     }
 }
-
-private enum FlickDirection { case center, left, up, right, down }
 
 /// フリック判定を持つかなキー。タッチ開始点を記録し、移動量がしきい値を
 /// 超えたら支配的な軸方向を選ぶ。離した時点で選択中の候補を必ず確定する
@@ -107,6 +108,9 @@ private final class FlickKey: UIView {
         if max(abs(dx), abs(dy)) >= threshold {
             next = abs(dx) > abs(dy) ? (dx < 0 ? .left : .right) : (dy < 0 ? .up : .down)
         }
+        // 下セルを持たないキー (わ・、) では下方向を中央として扱う。
+        // 下フリックでも中央の文字が必ず確定する (取りこぼさない)。
+        if next == .down, row.omitDown { next = .center }
         if next != direction {
             direction = next
             onPreview?(self, next)
@@ -143,6 +147,10 @@ final class FlickCanvas: UIView, KeyboardSurface {
     var configureSwitchKey: ((UIButton) -> Void)?
     var configureMenu: ((UIButton) -> Void)?
     var configureSpaceMenu: ((UIButton) -> Void)?
+    /// ポップアップの載せ先。最上段のポップアップはキャンバスの上端を
+    /// 越えて候補バーに被さるため、VC が候補バー＋キャンバスを跨ぐ
+    /// ルートビューを渡す。未設定ならキャンバス自身に載せる。
+    weak var popupHost: UIView?
     /// フリック面専用のコールバック (VC が個別に配線する)。
     var onDakuten: (() -> Void)?
     var onEmoji: (() -> Void)?
@@ -181,15 +189,17 @@ final class FlickCanvas: UIView, KeyboardSurface {
         FlickRow(center: "ま", left: "み", up: "む", right: "め", down: "も"),
         FlickRow(center: "や", left: "「", up: "ゆ", right: "」", down: "よ"),
         FlickRow(center: "ら", left: "り", up: "る", right: "れ", down: "ろ"),
-        FlickRow(center: "わ", left: "を", up: "ん", right: "ー", down: "ゎ"),
-        FlickRow(center: "、", left: "。", up: "？", right: "！", down: "・"),
+        FlickRow(center: "わ", left: "を", up: "ん", right: "ー", down: "ゎ", omitDown: true),
+        FlickRow(center: "、", left: "。", up: "？", right: "！", down: "・", omitDown: true),
     ]
 
     func configure(_ settings: LayoutSettings, shifted: Bool, symbols: Bool, japanese: Bool) {
         self.settings = settings
         palette = settings.resolvedPalette(dark: dark)
+        // ポップアップはホスト側に載っていることがあるため、先に外す。
+        hidePopup()
         subviews.forEach { $0.removeFromSuperview() }
-        popup = nil; popupCells = [:]; flickKeys = []
+        flickKeys = []
         // 背景画像は VC のルート側に敷く (KeyboardCanvas と同じ作法)。
         backgroundColor = settings.usesBackgroundImage ? .clear : palette.background.uiColor
         for (index, row) in Self.rows.enumerated() {
@@ -271,8 +281,9 @@ final class FlickCanvas: UIView, KeyboardSurface {
     private func rowGap(width: CGFloat) -> CGFloat { width * 18 / 1206 }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
-        // グリッドの上下にポップアップのセル 1 つ分の余白を確保する
-        // (FlickPopupGeometry 参照)。QWERTY 面の高さには影響しない。
+        // 高さはグリッドちょうど。ポップアップは候補バー側への被さりと
+        // わ・、 の下セル省略で収める (FlickPopupGeometry 参照)。
+        // QWERTY 面の高さには影響しない。
         FlickPopupGeometry.preferredHeight(rowHeight: rowHeight(width: width), rowGap: rowGap(width: width))
     }
 
@@ -290,10 +301,9 @@ final class FlickCanvas: UIView, KeyboardSurface {
                                edge + leftRail + 2 * unit + 3 * gap]
         let rightX = edge + leftRail + 3 * unit + 4 * gap
         var rowYs: [CGFloat] = []
-        // グリッドの開始位置は上端からセル 1 つ分 (height) 下げる。これが
-        // 最上段キーのポップアップ上セルの居場所になる (下端側の余白は
-        // preferredHeight の側で確保する)。
-        var nextY: CGFloat = height
+        // グリッドはキャンバスの上端から始まる。最上段キーのポップ
+        // アップはキャンバスの外 (候補バー側) へ被さって出る。
+        var nextY: CGFloat = 0
         for _ in 0..<4 { rowYs.append(nextY); nextY += height + vGap }
         for (index, key) in flickKeys.enumerated() {
             if index < 9 {
@@ -340,6 +350,11 @@ final class FlickCanvas: UIView, KeyboardSurface {
     // MARK: - フリックプレビュー (十字ポップアップ)
 
     private func showPopup(for key: FlickKey, direction: FlickDirection) {
+        // ポップアップはキャンバスではなく、候補バー＋キャンバスを跨ぐ
+        // ホスト (VC のルートビュー) に載せる。最上段ではキャンバスの
+        // 上端を越えて候補バー側へ被さるため、キャンバス自身に載せると
+        // 親ビューの合成範囲に制限されかねない。
+        let host = popupHost ?? self
         if popup == nil {
             let container = UIView()
             container.isUserInteractionEnabled = false
@@ -352,18 +367,19 @@ final class FlickCanvas: UIView, KeyboardSurface {
                 container.addSubview(cell)
                 popupCells[dir] = cell
             }
-            addSubview(container)
             popup = container
         }
         guard let popup else { return }
-        bringSubviewToFront(popup)
+        if popup.superview !== host { host.addSubview(popup) }
+        host.bringSubviewToFront(popup)
         let cell = key.bounds.size
-        let size = CGSize(width: cell.width * 3, height: cell.height * 3)
+        let omitDown = key.row.omitDown
+        let size = FlickPopupGeometry.popupSize(cellSize: cell, omitDown: omitDown)
         // 純正と同じく、十字の中央セルが押したキーの真上に重なる位置に
-        // 出す。上下はグリッド前後の余白 (preferredHeight / レイアウトの
-        // 開始位置) で収まる設計で、FlickPopupGeometry 側のクランプは
-        // 横方向の端と想定外寸法へのガードとして残す。
-        let origin = FlickPopupGeometry.popupOrigin(keyFrame: key.frame, canvasSize: bounds.size, cellSize: cell)
+        // 出す。キーの位置はホスト座標へ変換してから原点を計算する。
+        let keyFrame = key.convert(key.bounds, to: host)
+        let origin = FlickPopupGeometry.popupOrigin(keyFrame: keyFrame, hostSize: host.bounds.size,
+                                                    cellSize: cell, omitDown: omitDown)
         popup.frame = CGRect(origin: origin, size: size)
         let positions: [FlickDirection: CGRect] = [
             .center: CGRect(x: cell.width, y: cell.height, width: cell.width, height: cell.height),
@@ -372,8 +388,11 @@ final class FlickCanvas: UIView, KeyboardSurface {
             .right: CGRect(x: cell.width * 2, y: cell.height, width: cell.width, height: cell.height),
             .down: CGRect(x: cell.width, y: cell.height * 2, width: cell.width, height: cell.height),
         ]
+        let displayed = FlickPopupGeometry.displayedDirections(omitDown: omitDown)
         for (dir, cellLabel) in popupCells {
             cellLabel.frame = positions[dir] ?? .zero
+            // 下セルを持たないキー (わ・、) では下セル自体を出さない。
+            cellLabel.isHidden = !displayed.contains(dir)
             cellLabel.text = key.row.candidate(dir)
             cellLabel.font = .systemFont(ofSize: min(30, max(20, cell.height * 0.52)))
             let selected = dir == direction
