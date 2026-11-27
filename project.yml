@@ -44,6 +44,8 @@ targets:
     platform: iOS
     sources:
       - App
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: Keyboard/KeyboardSettings.swift
       - path: Keyboard/KeyboardAppearance.swift
       - path: Keyboard/PurchaseState.swift
@@ -82,6 +84,8 @@ targets:
     platform: iOS
     sources:
       - Keyboard
+      - path: Keyboard/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.onejpkey.NumberKey.Keyboard
@@ -128,6 +132,8 @@ targets:
     platform: iOS
     sources:
       - ShareExtension
+      - path: ShareExtension/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: Keyboard/ClipboardHistory.swift
     settings:
       base:

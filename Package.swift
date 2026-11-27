@@ -11,13 +11,13 @@ let package = Package(
             name: "KeyboardConversion",
             dependencies: [.product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter")],
             path: "Keyboard",
-            exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "PerfProbe.swift", "Info.plist"],
+            exclude: ["KeyboardSettings.swift", "KeyboardViewController.swift", "KeyboardCanvas.swift", "MarkedTextSession.swift", "PerfProbe.swift", "Info.plist", "PrivacyInfo.xcprivacy"],
             sources: ["ConversionService.swift", "RerankScorer.swift", "ContextRerankScorer.swift", "JoyoKanji.swift", "SelectionHistory.swift"]
         ),
         .target(
             name: "PhraseStore",
             path: "Keyboard",
-            exclude: ["BufferDocument.swift", "ConversionService.swift", "KeyboardCanvas.swift", "KeyboardViewController.swift", "MarkedTextSession.swift", "Info.plist", "NumberKeyKeyboard.entitlements"],
+            exclude: ["BufferDocument.swift", "ConversionService.swift", "KeyboardCanvas.swift", "KeyboardViewController.swift", "MarkedTextSession.swift", "Info.plist", "NumberKeyKeyboard.entitlements", "PrivacyInfo.xcprivacy"],
             sources: ["PhraseStore.swift", "ClipboardHistory.swift", "EnglishSuggest.swift", "EnglishWordMode.swift", "EmojiData.swift", "DictionaryPacks.swift", "PurchaseState.swift", "KeyboardSettings.swift", "KeyboardAppearance.swift", "FlickPopupGeometry.swift"]
         ),
         .testTarget(

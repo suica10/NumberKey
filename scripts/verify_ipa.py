@@ -107,7 +107,8 @@ def verify_ipa(path):
                     check(resolved, search)
             check(executable, [])
         appex_runpaths = audit_appex_runpaths(path)
-        return {'executables': roots, 'bundledDependencies': checked, 'appexRunpaths': appex_runpaths, 'status': 'passed'}
+        privacy_manifests = audit_privacy_manifests(path)
+        return {'executables': roots, 'bundledDependencies': checked, 'appexRunpaths': appex_runpaths, 'privacyManifests': privacy_manifests, 'status': 'passed'}
 
 def otool(arguments, binary):
     if shutil.which('otool') is None:
@@ -177,6 +178,41 @@ def audit_appex_runpaths(path):
                         f'  dyld would abort this extension at launch: {detail}')
                 audited.append({'appex': appex.name, 'dependency': dependency, 'resolved': resolved})
         return audited
+
+def audit_privacy_manifests(path):
+    """Fail if a bundle ships without its PrivacyInfo.xcprivacy.
+
+    A source audit on 2026-11-27 found required-reason API use in every
+    bundle of this IPA: the app and both app extensions use UserDefaults
+    (the App Group suite and the standard defaults), and the keyboard
+    extension also uses ProcessInfo.systemUptime for on-device
+    performance measurement. App Store Connect rejects uploads with
+    ITMS-91053 when a bundle uses such APIs but ships no privacy
+    manifest, and builds 85-88 shipped with no manifest in any bundle
+    because the sources simply had none. Every bundle here — the .app
+    and each .appex — must therefore carry a PrivacyInfo.xcprivacy at
+    its bundle root, and the file must parse as a plist.
+    """
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        app_plists = [name for name in names if name.startswith('Payload/') and name.count('/') == 2 and name.endswith('.app/Info.plist')]
+        if len(app_plists) != 1:
+            raise ValueError('Expected exactly one app in Payload')
+        app_dir = str(PurePosixPath(app_plists[0]).parent)
+        bundle_dirs = [app_dir] + sorted(
+            str(PurePosixPath(name).parent)
+            for name in names
+            if name.startswith(app_dir + '/PlugIns/') and name.count('/') == 4 and name.endswith('.appex/Info.plist'))
+        checked = []
+        for bundle_dir in bundle_dirs:
+            manifest = bundle_dir + '/PrivacyInfo.xcprivacy'
+            if manifest not in names:
+                raise ValueError(
+                    f'Missing privacy manifest: {manifest}\n'
+                    '  Every bundle in this IPA uses required-reason APIs (UserDefaults; the keyboard extension also systemUptime) and must ship a PrivacyInfo.xcprivacy')
+            plistlib.loads(archive.read(manifest))
+            checked.append(manifest)
+        return checked
 
 if __name__ == '__main__':
     try:
