@@ -17,14 +17,4 @@ enum PasteText {
         }
         return result
     }
-
-    /// ペーストボタンのラベルに出す1行プレビュー。改行・タブは空白に
-    /// 畳み、前後の空白を落として、長い場合は先頭 maxLength 文字＋…。
-    static func preview(_ text: String, maxLength: Int = 12) -> String {
-        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-            .trimmingCharacters(in: .whitespaces)
-        guard oneLine.count > maxLength else { return oneLine }
-        return String(oneLine.prefix(maxLength)) + "…"
-    }
 }

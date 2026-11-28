@@ -19,22 +19,4 @@ final class PasteTextTests: XCTestCase {
         XCTAssertEqual(PasteText.sanitized("https://example.com/path?q=1"), "https://example.com/path?q=1")
         XCTAssertEqual(PasteText.sanitized(""), "")
     }
-
-    // MARK: - preview
-
-    func testPreviewFoldsNewlinesAndTrims() {
-        XCTAssertEqual(PasteText.preview("  abc\ndef  "), "abc def")
-        XCTAssertEqual(PasteText.preview("1行目\n2行目です"), "1行目 2行目です")
-    }
-
-    func testPreviewTruncatesLongText() {
-        XCTAssertEqual(PasteText.preview("123456789012"), "123456789012")
-        XCTAssertEqual(PasteText.preview("1234567890123"), "123456789012…")
-        XCTAssertEqual(PasteText.preview("あいうえおかきくけこさしす"), "あいうえおかきくけこさし…")
-    }
-
-    func testPreviewRespectsMaxLength() {
-        XCTAssertEqual(PasteText.preview("abcdef", maxLength: 3), "abc…")
-        XCTAssertEqual(PasteText.preview("abc", maxLength: 3), "abc")
-    }
 }
