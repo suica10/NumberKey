@@ -140,6 +140,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     /// 候補キーへ最後に適用したパレット。変わったときだけ全キーの色を
     /// 付け直す（renderState は打鍵のたびに走るため、毎回は付け直さない）。
     private var candidatePaletteApplied: KeyboardPalette?
+    /// アイドル時に候補帯の右端へ出すペーストボタン（build 95）。
+    /// 候補が無く組成も無いときだけ現れる。帯は常時表示・高さ固定
+    /// なので、出し入れで全体のレイアウトは動かない。実体は候補帯の
+    /// 子として置き、配置は layoutPasteButton が右端に寄せる。
+    private let pasteButton = UIButton(type: .custom)
+    /// ボタンに出すクリップボード内容のキャッシュ。changeCount が
+    /// 変わったときだけ読み直す（captureClipboard と同じ作法で、
+    /// 打鍵ごとの読み取りはしない）。
+    private var pastePreviewText: String?
+    private var pastePreviewChangeCount: Int?
+    /// ボタンへ最後に適用したパレット（候補キーと同じ作法）。
+    private var pastePaletteApplied: KeyboardPalette?
     /// 着せ替えの実効パレット（rebuildCanvas のたびに設定から解決する）。
     /// OFF では現行色と一致する standard になる。
     private var currentPalette = KeyboardPalette.standard(dark: true)
@@ -289,6 +301,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         predictionPan.cancelsTouchesInView = true
         predictionPan.delegate = self
         predictionStrip.addGestureRecognizer(predictionPan)
+        // ペーストボタン（build 95）。候補キーと同じ .custom で作り、
+        // 色は候補文字色に追随させる。初期状態は非表示で、表示の判断は
+        // updatePasteButton が担う。
+        pasteButton.isHidden = true
+        pasteButton.titleLabel?.font = .systemFont(ofSize: 13)
+        pasteButton.setTitleColor(currentPalette.candidateText.uiColor, for: .normal)
+        pasteButton.tintColor = currentPalette.candidateText.uiColor
+        pasteButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
+        pasteButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 13), forImageIn: .normal)
+        pasteButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        pasteButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        pasteButton.accessibilityIdentifier = "pasteButton"
+        pasteButton.addTarget(self, action: #selector(pasteButtonTapped), for: .touchUpInside)
+        candidateStrip.addSubview(pasteButton)
         // build 56/58: 高さ交渉用の Auto Layout 足場（不可視の sizer）は
         // 候補帯の中ではなくルート直下に置く（candidateSizer のコメント
         // 参照）。帯の高さに連動させるため height は candidateStrip の
@@ -766,6 +792,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         predictionStrip.isHidden = !isJapanese
         predictionStrip.frame = CGRect(x: 0, y: topHeight + perfHeight + candidateStripHeight,
                                        width: width, height: predictionHeight)
+        // ペーストボタンは候補帯の子。帯のフレームが決まった後に
+        // 表示可否と右端配置を合わせる（build 95）。
+        updatePasteButton()
         let canvasFrame = CGRect(x: 0, y: topHeight + perfHeight + candidateHeight, width: width, height: keysHeight)
         canvas.frame = canvasFrame
         flickCanvas.frame = canvasFrame
@@ -895,6 +924,62 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard pasteboard.changeCount != last else { return }
         UserDefaults.standard.set(pasteboard.changeCount, forKey: Self.clipboardChangeCountKey)
         if let text = pasteboard.string { clipboardStore.record(text) }
+    }
+    /// ペーストボタンの表示可否と中身を現在の状態へ合わせる（build 95）。
+    /// 出すのは「組成が無く、候補帯が空で、どのパネルも開いていない」
+    /// アイドル時だけ。クリップボードに文字列が無い（または読めない）
+    /// 間は出さない。読み取りは changeCount が変わったときだけ。
+    private func updatePasteButton() {
+        let stripEmpty = bracketCandidates.isEmpty
+            && (isJapanese ? candidates.isEmpty : englishSuggestions.isEmpty)
+        let idle = composition.isEmpty && stripEmpty
+            && !isPicking && !isClipboardPicking && !isEmojiPicking && !isCapturing
+        guard idle, hasFullAccess else { pasteButton.isHidden = true; return }
+        let board = UIPasteboard.general
+        if pastePreviewChangeCount != board.changeCount {
+            pastePreviewChangeCount = board.changeCount
+            pastePreviewText = board.string.map { PasteText.sanitized($0) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        guard let text = pastePreviewText else { pasteButton.isHidden = true; return }
+        let label = PasteText.preview(text)
+        if pasteButton.title(for: .normal) != label { pasteButton.setTitle(label, for: .normal) }
+        if pastePaletteApplied != currentPalette {
+            pasteButton.setTitleColor(currentPalette.candidateText.uiColor, for: .normal)
+            pasteButton.tintColor = currentPalette.candidateText.uiColor
+            pastePaletteApplied = currentPalette
+        }
+        pasteButton.isHidden = false
+        layoutPasteButton()
+    }
+    /// ペーストボタンを候補帯の右端へ置く。幅は中身に合わせ、上限は
+    /// 帯幅の6割（候補が戻る場所を空ける意味もある）。
+    private func layoutPasteButton() {
+        guard !pasteButton.isHidden, candidateStrip.bounds.width > 0 else { return }
+        let maxWidth = min(230, candidateStrip.bounds.width * 0.6)
+        let fitted = pasteButton.sizeThatFits(CGSize(width: maxWidth, height: candidateStripHeight))
+        let width = min(maxWidth, ceil(fitted.width))
+        pasteButton.frame = CGRect(x: candidateStrip.bounds.width - width - 2, y: 0,
+                                   width: width, height: candidateStripHeight)
+    }
+    /// ペーストボタン: クリップボードの文字列をそのまま文書へ挿入する。
+    /// 挿入は定型文と同じ editor.insert（即時確定）を通る。
+    @objc private func pasteButtonTapped() {
+        guard hasFullAccess else {
+            let alert = UIAlertController(title: "貼り付けできません",
+                                          message: "クリップボードの読み取りにはフルアクセスが必要です。設定でOne Keyboardのフルアクセスを許可してください。",
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        guard let raw = UIPasteboard.general.string else { return }
+        let text = PasteText.sanitized(raw)
+        guard !text.isEmpty else { return }
+        syncHostChange(); commitCurrent()
+        editor.insert(text)
+        pastePreviewChangeCount = UIPasteboard.general.changeCount
+        pastePreviewText = text
+        renderState()
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -1265,15 +1350,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             return
         }
         guard let pasted = UIPasteboard.general.string, !pasted.isEmpty else { return }
-        // 改行は定型文の中身として維持する（改行コードは \n にそろえる）。
-        // 改行以外の制御文字だけ落とす。
-        let lineNormalized = pasted.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        var sanitized = ""
-        for scalar in lineNormalized.unicodeScalars {
-            if scalar == "\n" { sanitized.append("\n") }
-            else if !CharacterSet.controlCharacters.contains(scalar) { sanitized.unicodeScalars.append(scalar) }
-        }
+        // 改行は定型文の中身として維持する。整形規則は PasteText に集約
+        // （改行コードを \n にそろえ、改行以外の制御文字を落とす）。
+        let sanitized = PasteText.sanitized(pasted)
         guard !sanitized.isEmpty else { return }
         commitCurrent()
         editor.insert(sanitized)
@@ -1760,6 +1839,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             }
         }
         renderPredictionStrip()
+        // 組成・候補の有無が変わるたびにペーストボタンの表示も合わせる。
+        updatePasteButton()
     }
 
     /// 下段の予測キーの文字色。上段の候補文字色を薄めたもので、格下の
